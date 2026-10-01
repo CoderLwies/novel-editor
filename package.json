@@ -39,6 +39,9 @@
     ],
     "directories": {
       "output": "release"
+    },
+    "win": {
+      "signAndEditExecutable": false
     }
   }
 }
