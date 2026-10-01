@@ -21,6 +21,9 @@ async function main() {
 
   await win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   await sleep(1500)
+  await win.webContents.executeJavaScript('localStorage.clear()')
+  await win.reload()
+  await sleep(1500)
 
   const shot = async (name) => {
     const img = await win.webContents.capturePage()
@@ -33,6 +36,18 @@ async function main() {
 
   // 1) 工作台 - 大纲侧栏（默认）
   await shot('01-workspace-outline.png')
+
+  // 1b) 展开章纲编辑区
+  await js(`(() => { const h = document.querySelector('.ol-ch:not(.open) .ol-ch-head'); if (h) h.click() })()`)
+  await sleep(500)
+  await shot('06-outline-chapter.png')
+
+  // 1c) 全书大纲表视图
+  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('大纲'))?.click()`)
+  await sleep(600)
+  await shot('07-outline-table.png')
+  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('写作'))?.click()`)
+  await sleep(500)
 
   // 2) 工作台 - 角色侧栏
   await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='角色').click()`)

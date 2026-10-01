@@ -3,6 +3,7 @@ import { ChevronRight, ChevronDown, Plus, Trash2, FilePlus2, Layers } from 'luci
 import { useStore, actions, chaptersOf } from '../store'
 import type { Book, Volume, AppState } from '../types'
 import { countWords, formatNumber } from '../utils'
+import { OS_META } from './SidePanel'
 
 export default function ChapterTree({
   book,
@@ -96,6 +97,10 @@ export default function ChapterTree({
                         onClick={() => actions.selectChapter(ch.id)}
                       >
                         <span className={`ch-status st-${ch.status}`} title={statusLabel(ch.status)} />
+                        <span
+                          className={`os-dot ${OS_META[ch.outlineStatus].cls}`}
+                          title={`章纲：${OS_META[ch.outlineStatus].label}`}
+                        />
                         {editing?.type === 'ch' && editing.id === ch.id ? (
                           <input
                             className="inline-edit"

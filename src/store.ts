@@ -20,12 +20,35 @@ function load(): AppState {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as AppState
-      if (parsed && Array.isArray(parsed.books)) return parsed
+      if (parsed && Array.isArray(parsed.books)) return migrate(parsed)
     }
   } catch {
     /* ignore corrupted state */
   }
   return createSeedState()
+}
+
+/** 旧版本 localStorage / 项目文件缺少大纲字段时补默认值 */
+function migrate(raw: AppState): AppState {
+  const volumes = raw.volumes.map((v) => {
+    const old = v as Partial<Volume>
+    return { ...v, synopsis: old.synopsis ?? '', goal: old.goal ?? '', conflict: old.conflict ?? '' }
+  })
+  const chapters = raw.chapters.map((c) => {
+    const old = c as Partial<Chapter>
+    return {
+      ...c,
+      goal: old.goal ?? '',
+      conflict: old.conflict ?? '',
+      turning: old.turning ?? '',
+      hook: old.hook ?? '',
+      pov: old.pov ?? '',
+      cast: old.cast ?? [],
+      foreshadowIds: old.foreshadowIds ?? [],
+      outlineStatus: old.outlineStatus ?? (countWords(old.content ?? '') > 0 ? 'written' : 'plan'),
+    }
+  })
+  return { ...raw, volumes, chapters }
 }
 
 let state: AppState = load()
@@ -80,6 +103,9 @@ export const actions = {
       bookId: book.id,
       title: '第一卷',
       order: 0,
+      synopsis: '',
+      goal: '',
+      conflict: '',
     }
     set((s) => ({
       ...s,
@@ -128,6 +154,9 @@ export const actions = {
       bookId,
       title: title || '新分卷',
       order: 0,
+      synopsis: '',
+      goal: '',
+      conflict: '',
     }
     set((s) => {
       const order = s.volumes.filter((v) => v.bookId === bookId).length
@@ -170,6 +199,14 @@ export const actions = {
       synopsis: '',
       order: 0,
       status: 'draft',
+      goal: '',
+      conflict: '',
+      turning: '',
+      hook: '',
+      pov: '',
+      cast: [],
+      foreshadowIds: [],
+      outlineStatus: 'plan',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
@@ -214,6 +251,28 @@ export const actions = {
       chapters: s.chapters.filter((c) => c.id !== id),
       ui: { ...s.ui, lastChapterId: s.ui.lastChapterId === id ? null : s.ui.lastChapterId },
     }))
+  },
+
+  /** 拖拽排序/跨卷移动：把章节放到目标卷的第 index 位 */
+  moveChapter(id: ID, volumeId: ID, index: number) {
+    set((s) => {
+      const moving = s.chapters.find((c) => c.id === id)
+      if (!moving) return s
+      const rest = s.chapters
+        .filter((c) => c.volumeId === volumeId && c.id !== id)
+        .sort((a, b) => a.order - b.order)
+      const at = Math.max(0, Math.min(index, rest.length))
+      rest.splice(at, 0, moving)
+      const orderOf = new Map(rest.map((c, i) => [c.id, i]))
+      return {
+        ...s,
+        chapters: s.chapters.map((c) => {
+          if (c.id === id) return { ...c, volumeId, order: orderOf.get(id)!, updatedAt: Date.now() }
+          if (c.volumeId === volumeId && orderOf.has(c.id)) return { ...c, order: orderOf.get(c.id)! }
+          return c
+        }),
+      }
+    })
   },
 
   // Characters
@@ -310,7 +369,14 @@ export const actions = {
       createdAt: now,
       updatedAt: now,
     }
-    const volumes: Volume[] = data.volumes.map((v) => ({ ...v, id: volMap.get(v.id)!, bookId }))
+    const volumes: Volume[] = data.volumes.map((v) => ({
+      ...v,
+      id: volMap.get(v.id)!,
+      bookId,
+      synopsis: v.synopsis ?? '',
+      goal: v.goal ?? '',
+      conflict: v.conflict ?? '',
+    }))
     const chapters: Chapter[] = data.chaptersMeta.map((m) => ({
       id: chMap.get(m.id)!,
       bookId,
@@ -320,6 +386,14 @@ export const actions = {
       synopsis: m.synopsis ?? '',
       order: m.order,
       status: m.status ?? 'draft',
+      goal: m.goal ?? '',
+      conflict: m.conflict ?? '',
+      turning: m.turning ?? '',
+      hook: m.hook ?? '',
+      pov: m.pov ?? '',
+      cast: m.cast ?? [],
+      foreshadowIds: m.foreshadowIds ?? [],
+      outlineStatus: m.outlineStatus ?? 'plan',
       createdAt: now,
       updatedAt: now,
     }))

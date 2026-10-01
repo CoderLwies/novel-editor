@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import {
   ChevronLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
-  Sun, Moon, Minus, Plus, HardDrive,
+  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2,
 } from 'lucide-react'
 import { useStore, actions, volumesOf } from '../store'
 import type { Book, Chapter } from '../types'
@@ -9,6 +9,7 @@ import { isElectron } from '../fs'
 import { writeProjectToDir } from '../project'
 import ChapterTree from './ChapterTree'
 import Editor from './Editor'
+import OutlineView from './OutlineView'
 import SidePanel, { type SideTab } from './SidePanel'
 import StatsBar from './StatsBar'
 import FileMenu from './FileMenu'
@@ -18,6 +19,7 @@ export default function Workspace({ book }: { book: Book }) {
   const [sideTab, setSideTab] = useState<SideTab>('outline')
   const [showTree, setShowTree] = useState(true)
   const [showSide, setShowSide] = useState(true)
+  const [mode, setMode] = useState<'write' | 'outline'>('write')
 
   const volumes = useMemo(() => volumesOf(state, book.id), [state, book.id])
 
@@ -77,6 +79,23 @@ export default function Workspace({ book }: { book: Book }) {
 
         <div className="spacer" />
 
+        <div className="seg">
+          <button
+            className={`seg-btn ${mode === 'write' ? 'active' : ''}`}
+            title="写作模式"
+            onClick={() => setMode('write')}
+          >
+            <PenLine size={15} /> 写作
+          </button>
+          <button
+            className={`seg-btn ${mode === 'outline' ? 'active' : ''}`}
+            title="全书大纲表"
+            onClick={() => setMode('outline')}
+          >
+            <Table2 size={15} /> 大纲
+          </button>
+        </div>
+
         <FileMenu book={book} />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -108,7 +127,17 @@ export default function Workspace({ book }: { book: Book }) {
 
       <div className="ws-body">
         {showTree && <ChapterTree book={book} volumes={volumes} currentChapterId={currentChapter?.id ?? null} />}
-        <Editor chapter={currentChapter} fontSize={fontSize} />
+        {mode === 'outline' ? (
+          <OutlineView
+            book={book}
+            onOpenChapter={(id) => {
+              actions.selectChapter(id)
+              setMode('write')
+            }}
+          />
+        ) : (
+          <Editor chapter={currentChapter} fontSize={fontSize} />
+        )}
         {showSide && <SidePanel book={book} chapter={currentChapter} tab={sideTab} onTabChange={setSideTab} />}
       </div>
 

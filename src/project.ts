@@ -6,6 +6,7 @@ import type {
   SettingItem,
   Foreshadow,
   ChapterStatus,
+  OutlineStatus,
   ID,
 } from './types'
 import { fsLow } from './fs'
@@ -22,6 +23,14 @@ export interface ChapterMeta {
   status: ChapterStatus
   synopsis: string
   file: string
+  goal?: string
+  conflict?: string
+  turning?: string
+  hook?: string
+  pov?: string
+  cast?: ID[]
+  foreshadowIds?: ID[]
+  outlineStatus?: OutlineStatus
 }
 
 export interface ProjectData {
@@ -80,6 +89,14 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
       status: c.status,
       synopsis: c.synopsis,
       file,
+      goal: c.goal,
+      conflict: c.conflict,
+      turning: c.turning,
+      hook: c.hook,
+      pov: c.pov,
+      cast: c.cast,
+      foreshadowIds: c.foreshadowIds,
+      outlineStatus: c.outlineStatus,
     })
     await fsLow.writeFile(joinPath(dir, 'chapters', file), c.content)
   }
@@ -170,6 +187,50 @@ export function exportBookMd(state: AppState, bookId: ID): string {
   return out.join('\n')
 }
 
+const OUTLINE_STATUS_LABEL: Record<OutlineStatus, string> = {
+  plan: '计划中',
+  written: '已成文',
+  revised: '已修纲',
+}
+
+export function exportOutlineMd(state: AppState, bookId: ID): string {
+  const book = state.books.find((b) => b.id === bookId)!
+  const volumes = state.volumes.filter((v) => v.bookId === bookId).sort((a, b) => a.order - b.order)
+  const chars = new Map(state.characters.filter((c) => c.bookId === bookId).map((c) => [c.id, c.name]))
+  const fss = new Map(state.foreshadows.filter((f) => f.bookId === bookId).map((f) => [f.id, f.title]))
+
+  const out: string[] = [`# ${book.title} · 全书大纲`, '', `> ${book.genre} · ${book.author}`, '']
+  if (book.synopsis) out.push('## 总纲', '', book.synopsis, '')
+
+  for (const vol of volumes) {
+    const chs = orderedChapters(state, bookId).filter((c) => c.volumeId === vol.id)
+    const words = chs.reduce((s, c) => s + countWords(c.content), 0)
+    out.push(`## ${vol.title}`, '', `<sub>${chs.length} 章 · ${words} 字</sub>`, '')
+    if (vol.synopsis) out.push(`- **卷纲**：${vol.synopsis}`)
+    if (vol.goal) out.push(`- **本卷目标**：${vol.goal}`)
+    if (vol.conflict) out.push(`- **核心冲突**：${vol.conflict}`)
+    if (vol.synopsis || vol.goal || vol.conflict) out.push('')
+
+    for (const c of chs) {
+      out.push(`### ${c.title}`, '')
+      const tags = [`纲状态：${OUTLINE_STATUS_LABEL[c.outlineStatus]}`, `字数：${countWords(c.content)}`]
+      if (c.pov) tags.push(`视角：${c.pov}`)
+      out.push(`<sub>${tags.join(' · ')}</sub>`, '')
+      if (c.synopsis) out.push(`- **概括**：${c.synopsis}`)
+      if (c.goal) out.push(`- **目标**：${c.goal}`)
+      if (c.conflict) out.push(`- **冲突**：${c.conflict}`)
+      if (c.turning) out.push(`- **转折**：${c.turning}`)
+      if (c.hook) out.push(`- **钩子**：${c.hook}`)
+      if (c.cast.length > 0) out.push(`- **登场**：${c.cast.map((id) => chars.get(id) ?? '未知角色').join('、')}`)
+      if (c.foreshadowIds.length > 0) {
+        out.push(`- **伏笔**：${c.foreshadowIds.map((id) => fss.get(id) ?? '未知伏笔').join('、')}`)
+      }
+      out.push('')
+    }
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
 /* --------------------------- 单文件 导入 --------------------------- */
 
 const CHAPTER_RE = /^第\s*[0-9一二三四五六七八九十百千两零]+\s*[章节回]/
@@ -192,7 +253,7 @@ export function parseSingleText(text: string, fallbackTitle: string): ProjectDat
     const existing = volumes.find((v) => v.title === title)
     if (existing) return existing.id
     const id = `imp_vol_${volumes.length}`
-    volumes.push({ id, bookId: 'imp', title, order: volumes.length })
+    volumes.push({ id, bookId: 'imp', title, order: volumes.length, synopsis: '', goal: '', conflict: '' })
     return id
   }
 

@@ -941,3 +941,294 @@ label.lbl {
   line-height: 1.6;
   color: var(--text-faint);
 }
+
+/* ---------------- 视图切换（写作 / 全书大纲） ---------------- */
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.seg-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: all 0.15s;
+}
+.seg-btn:hover { background: var(--bg-hover); }
+.seg-btn.active {
+  background: var(--bg-elev);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---------------- 纲状态色点 ---------------- */
+.os-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  display: inline-block;
+}
+.os-plan { background: var(--text-faint); }
+.os-written { background: var(--success); }
+.os-revised { background: var(--accent); }
+
+/* ---------------- 侧栏三级大纲树 ---------------- */
+.ol-vol {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.ol-vol-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ol-vol-head:hover { background: var(--bg-hover); }
+.ol-vol-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ol-vol-count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+.ol-vol-body {
+  padding: 4px 10px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.ol-field { margin-top: 9px; }
+.ol-field .lbl,
+.ol-chips-block .lbl {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-weight: 600;
+  margin-bottom: 4px;
+  letter-spacing: 0.3px;
+}
+.ol-f {
+  font-size: 12.5px;
+  padding: 6px 8px;
+  background: var(--bg-elev);
+}
+
+.ol-ch {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 7px;
+  background: var(--bg-elev);
+}
+.ol-ch.cur { border-color: var(--accent); }
+.ol-ch-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.ol-ch-head:hover { background: var(--bg-hover); }
+.ol-ch-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ol-ch-words {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ol-ch-body {
+  padding: 2px 9px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.ol-seg {
+  display: flex;
+  gap: 4px;
+  margin: 9px 0 2px;
+}
+.ol-seg-btn {
+  flex: 1;
+  padding: 3px 0;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.ol-seg-btn:hover { background: var(--bg-hover); }
+.ol-seg-btn.sel {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ol-chips-block { margin-top: 10px; }
+.ol-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.ol-chip {
+  padding: 2px 9px;
+  font-size: 11.5px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  background: transparent;
+}
+.ol-chip:hover { border-color: var(--border-strong); }
+.ol-chip.sel {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* ---------------- 伏笔挂钩 ---------------- */
+.fs-appear {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.fs-warn {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--warning);
+  background: rgba(232, 163, 61, 0.12);
+}
+
+/* ---------------- 全书大纲表 ---------------- */
+.outline-view {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 18px 16px 40px;
+  background: var(--editor-bg);
+}
+.ov-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ov-title { font-size: 16px; font-weight: 700; }
+.ov-sub { font-size: 11.5px; color: var(--text-faint); }
+
+.ov-vol { margin-bottom: 26px; }
+.ov-vol-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elev);
+  margin-bottom: 6px;
+}
+.ov-vol-head.drop { background: var(--bg-active); }
+.ov-vol-title { font-size: 13.5px; font-weight: 700; }
+.ov-vol-meta { font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.ov-vol-syn {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-grid {
+  display: grid;
+  grid-template-columns: 20px minmax(130px, 1.3fr) 64px minmax(110px, 1.5fr) minmax(110px, 1.5fr) 86px 52px;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.ov-row-head {
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-strong);
+}
+.ov-row { cursor: grab; background: var(--bg-elev); }
+.ov-row:hover { background: var(--bg-hover); }
+.ov-row.drop { background: var(--bg-active); box-shadow: inset 0 2px 0 var(--accent); }
+.ov-grip { color: var(--text-faint); display: flex; }
+.ov-cell {
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.ov-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12.5px;
+  overflow: hidden;
+}
+.ov-name:hover { color: var(--accent); }
+.ov-dim { color: var(--text-dim); font-size: 12px; }
+.ov-num {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ov-select {
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-sunken);
+  color: var(--text-dim);
+}
+.ov-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
+}

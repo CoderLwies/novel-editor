@@ -8,6 +8,8 @@ const outDir = path.join(__dirname, '..', '.preview')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // directory dialog is stubbed so the flow runs headlessly; value swapped per step
 let stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mozhang-e2e-'))
+// save dialog is stubbed too, so exports can be asserted headlessly
+const stubSavePath = path.join(stubDir, 'exported-outline.md')
 
 ipcMain.handle('fs:readFile', async (_e, p) => fsp.readFile(p, 'utf8'))
 ipcMain.handle('fs:writeFile', async (_e, p, content) => {
@@ -24,10 +26,7 @@ ipcMain.handle('dialog:openFile', async (_e, filters) => {
   const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: filters || undefined })
   return r.canceled ? null : r.filePaths[0]
 })
-ipcMain.handle('dialog:saveFile', async (_e, opts) => {
-  const r = await dialog.showSaveDialog(opts || {})
-  return r.canceled ? null : r.filePath
-})
+ipcMain.handle('dialog:saveFile', async () => stubSavePath)
 
 async function main() {
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
@@ -86,6 +85,60 @@ async function main() {
   const files = chDir ? fs.readdirSync(path.join(stubDir, 'chapters')) : []
   const synced = files.some((f) => fs.readFileSync(path.join(stubDir, 'chapters', f), 'utf8').includes('验证自动落盘'))
   console.log('E2E autosync -> chapter files:', files, '| content synced:', synced)
+
+  // 2b) 侧栏三级大纲：填写章纲字段 + 切换纲状态，验证落盘到 book.json
+  await js(`(() => {
+    const ch = document.querySelector('.ol-ch:not(.open) .ol-ch-head')
+    if (ch) ch.click()
+  })()`)
+  await sleep(400)
+  await js(`(() => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    const box = [...document.querySelectorAll('.ol-field')].find(f => f.querySelector('.lbl')?.textContent === '本章目标')
+    const inp = box?.querySelector('input')
+    if (!inp) return 'NO_FIELD'
+    setter.call(inp, '纲目标E2E标记')
+    inp.dispatchEvent(new Event('input', { bubbles: true }))
+    return 'ok'
+  })()`)
+  await js(`[...document.querySelectorAll('.ol-seg-btn')].find(b=>b.textContent==='已成文')?.click()`)
+  await sleep(1800)
+  const bj = created ? JSON.parse(fs.readFileSync(path.join(stubDir, 'book.json'), 'utf8')) : null
+  const meta = bj?.chaptersMeta?.find((m) => m.goal === '纲目标E2E标记')
+  console.log('E2E outline fields -> persisted goal:', !!meta, '| outlineStatus:', meta?.outlineStatus)
+
+  // 2c) 全书大纲表视图：渲染 + 纲状态下拉 + 点击回到正文
+  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('大纲'))?.click()`)
+  await sleep(600)
+  const rows = await js(`document.querySelectorAll('.ov-row').length`)
+  const hasDot = await js(`!!document.querySelector('.ov-row .os-dot')`)
+  await shot('12-outline-view.png')
+  await js(`(() => {
+    const sel = document.querySelector('.ov-row .ov-select')
+    if (!sel) return
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
+    setter.call(sel, 'revised')
+    sel.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+  await sleep(400)
+  const revised = await js(`!!document.querySelector('.ov-row .os-dot.os-revised')`)
+  const coverage = await js(`document.querySelector('.statsbar')?.textContent.match(/纲覆盖\\s*(\\d+%)/)?.[1] ?? 'n/a'`)
+  await js(`document.querySelector('.ov-row .ov-name')?.click()`)
+  await sleep(500)
+  const backToEditor = await js(`!!document.querySelector('.editor-textarea')`)
+  console.log('E2E outline table -> rows:', rows, '| status dot:', hasDot, '| revised:', revised,
+    '| coverage:', coverage, '| back to editor:', backToEditor)
+
+  // 2d) 导出全书大纲 Markdown
+  await js(`document.querySelector('.filemenu > button')?.click()`)
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.menu-item')].find(b=>b.textContent.includes('导出全书大纲'))?.click()`)
+  await sleep(900)
+  const outlineMd = fs.existsSync(stubSavePath) ? fs.readFileSync(stubSavePath, 'utf8') : ''
+  console.log('E2E outline export -> file:', !!outlineMd,
+    '| has title:', outlineMd.includes('# 测试新书 · 全书大纲'),
+    '| has goal:', outlineMd.includes('纲目标E2E标记'),
+    '| has status:', /纲状态：(已成文|已修纲)/.test(outlineMd))
 
   // 3) 从书架导入同一目录，验证往返
   await js(`document.querySelector('button[title="返回书架"]').click()`)

@@ -4,6 +4,8 @@ export type ChapterStatus = 'draft' | 'reviewing' | 'published'
 export type BookStatus = 'ongoing' | 'hiatus' | 'finished'
 export type ForeshadowStatus = 'planted' | 'progressing' | 'resolved'
 export type SettingCategory = 'location' | 'item' | 'faction' | 'rule' | 'power'
+/** 章纲进度：计划中 / 已成文 / 已修纲 */
+export type OutlineStatus = 'plan' | 'written' | 'revised'
 
 export interface Book {
   id: ID
@@ -25,6 +27,12 @@ export interface Volume {
   bookId: ID
   title: string
   order: number
+  /** 卷纲：一句话概括本卷 */
+  synopsis: string
+  /** 本卷目标（主角要达成什么） */
+  goal: string
+  /** 本卷核心冲突 */
+  conflict: string
 }
 
 export interface Chapter {
@@ -36,6 +44,22 @@ export interface Chapter {
   synopsis: string
   order: number
   status: ChapterStatus
+  /** 章纲：本章目标 */
+  goal: string
+  /** 章纲：主要冲突 */
+  conflict: string
+  /** 章纲：转折点 */
+  turning: string
+  /** 章纲：结尾钩子 */
+  hook: string
+  /** 章纲：视角人物 */
+  pov: string
+  /** 章纲：出场角色 id */
+  cast: ID[]
+  /** 章纲：本章埋/收的伏笔 id */
+  foreshadowIds: ID[]
+  /** 章纲进度 */
+  outlineStatus: OutlineStatus
   createdAt: number
   updatedAt: number
 }

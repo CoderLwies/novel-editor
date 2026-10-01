@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Flame, Gauge, FileText, Library } from 'lucide-react'
+import { Flame, Gauge, FileText, Library, ListTree } from 'lucide-react'
 import { useStore, bookWordCount } from '../store'
 import type { Book, Chapter } from '../types'
 import { countWords, formatNumber, todayKey, streakDays } from '../utils'
@@ -12,6 +12,10 @@ export default function StatsBar({ book, chapter }: { book: Book; chapter?: Chap
   const goal = book.dailyGoal || 1
   const pct = Math.min(100, Math.round((todayWords / goal) * 100))
   const streak = streakDays(state.dailyLog)
+
+  const bookChapters = state.chapters.filter((c) => c.bookId === book.id)
+  const outlined = bookChapters.filter((c) => c.outlineStatus !== 'plan').length
+  const coverage = bookChapters.length ? Math.round((outlined / bookChapters.length) * 100) : 0
 
   // 本次会话码字速度（字/分）
   const baseRef = useRef({ words: totalWords, time: Date.now() })
@@ -34,6 +38,9 @@ export default function StatsBar({ book, chapter }: { book: Book; chapter?: Chap
       </span>
       <span className="stat">
         <Gauge size={13} /> 速度 <b>{speed}</b> <span className="unit">字/分</span>
+      </span>
+      <span className="stat" title="已写章纲（非“计划中”）的章节占比">
+        <ListTree size={13} /> 纲覆盖 <b>{coverage}%</b> <span className="unit">{outlined}/{bookChapters.length} 章</span>
       </span>
 
       <div className="goal-wrap">

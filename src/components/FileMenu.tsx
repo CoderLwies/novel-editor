@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { FolderDown, FolderSync, HardDriveDownload, FileDown, FileText, Unlink, RefreshCw } from 'lucide-react'
+import { FolderDown, FolderSync, HardDriveDownload, FileDown, FileText, ListTree, Unlink, RefreshCw } from 'lucide-react'
 import { useStore, actions } from '../store'
 import type { Book } from '../types'
 import { pickDirectory, saveTextFile, supportsProjectFolders } from '../fs'
-import { writeProjectToDir, exportBookTxt, exportBookMd, sanitizeFilename } from '../project'
+import { writeProjectToDir, exportBookTxt, exportBookMd, exportOutlineMd, sanitizeFilename } from '../project'
 
 export default function FileMenu({ book }: { book: Book }) {
   const state = useStore()
@@ -86,6 +86,14 @@ export default function FileMenu({ book }: { book: Book }) {
       if (r) setToast(r.downloaded ? `已下载：${r.path}` : `已导出：${r.path}`)
     })
 
+  const exportOutline = () =>
+    run(async () => {
+      const r = await saveTextFile(`${sanitizeFilename(book.title)}-大纲.md`, exportOutlineMd(state, book.id), [
+        { name: 'Markdown', extensions: ['md'] },
+      ])
+      if (r) setToast(r.downloaded ? `已下载：${r.path}` : `已导出：${r.path}`)
+    })
+
   return (
     <div className="filemenu" ref={rootRef}>
       <button className={`icon-btn ${open ? 'active' : ''}`} onClick={() => setOpen((v) => !v)} disabled={busy}>
@@ -133,6 +141,9 @@ export default function FileMenu({ book }: { book: Book }) {
           </button>
           <button className="menu-item" onClick={exportMd}>
             <FileDown size={15} /> 导出全书 Markdown
+          </button>
+          <button className="menu-item" onClick={exportOutline}>
+            <ListTree size={15} /> 导出全书大纲 Markdown
           </button>
         </div>
       )}
