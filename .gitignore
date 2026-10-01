@@ -2,5 +2,6 @@ node_modules
 dist
 release
 .preview
+.idea
 *.local
 .DS_Store
