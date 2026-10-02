@@ -69,7 +69,7 @@ export default function Bookshelf() {
     <div className="bookshelf">
       <div className="bookshelf-head">
         <div className="brand-mark">
-          <div className="brand-logo">墨</div>
+          <img className="brand-logo" src="./logo.png" alt="墨章" />
           <div>
             <div className="bookshelf-title">墨章 · 网文编辑器</div>
             <div className="bookshelf-sub">

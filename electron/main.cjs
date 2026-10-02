@@ -51,6 +51,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     title: '墨章 · 网文小说编辑器',
+    icon: path.join(__dirname, devServerUrl ? '../public/logo.png' : '../dist/logo.png'),
     backgroundColor: '#16161b',
     autoHideMenuBar: true,
     webPreferences: {
