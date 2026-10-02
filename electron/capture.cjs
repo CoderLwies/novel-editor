@@ -25,6 +25,10 @@ async function main() {
   await win.reload()
   await sleep(1500)
 
+  // 启动恒落书架：点入第一本书以截工作台
+  await win.webContents.executeJavaScript(`document.querySelector('.book-card')?.click()`)
+  await sleep(700)
+
   const shot = async (name) => {
     const img = await win.webContents.capturePage()
     const buf = img.toPNG()

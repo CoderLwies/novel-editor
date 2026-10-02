@@ -318,7 +318,7 @@ export function createSeedState(): AppState {
     ui: {
       theme: 'dark',
       fontSize: 17,
-      lastBookId: bookId,
+      lastBookId: null,
       lastChapterId: 'ch_3',
     },
     ai: { ...DEFAULT_AI_CONFIG },

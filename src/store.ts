@@ -27,7 +27,11 @@ function load(): AppState {
     }
     if (raw) {
       const parsed = JSON.parse(raw) as AppState
-      if (parsed && Array.isArray(parsed.books)) return migrate(parsed)
+      if (parsed && Array.isArray(parsed.books)) {
+        const migrated = migrate(parsed)
+        // 启动恒落书架，不恢复上次会话打开的书
+        return { ...migrated, ui: { ...migrated.ui, lastBookId: null } }
+      }
     }
   } catch {
     /* ignore corrupted state */

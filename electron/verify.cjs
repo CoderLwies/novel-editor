@@ -248,7 +248,7 @@ async function main() {
   })()`)
   await win.reload()
   await sleep(1400)
-  await js(`document.querySelector('button[title="返回书架"]').click()`)
+  await js(`document.querySelector('button[title="返回书架"]')?.click()`)
   await sleep(600)
   await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('混沌神尊'))?.click()`)
   await sleep(700)
