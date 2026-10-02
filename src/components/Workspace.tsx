@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import {
   ChevronLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
-  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2,
+  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles,
 } from 'lucide-react'
 import { useStore, actions, volumesOf } from '../store'
 import type { Book, Chapter } from '../types'
@@ -13,6 +13,7 @@ import OutlineView from './OutlineView'
 import SidePanel, { type SideTab } from './SidePanel'
 import StatsBar from './StatsBar'
 import FileMenu from './FileMenu'
+import { AiSettingsModal } from './AiModals'
 
 export default function Workspace({ book }: { book: Book }) {
   const state = useStore()
@@ -20,6 +21,7 @@ export default function Workspace({ book }: { book: Book }) {
   const [showTree, setShowTree] = useState(true)
   const [showSide, setShowSide] = useState(true)
   const [mode, setMode] = useState<'write' | 'outline'>('write')
+  const [showAi, setShowAi] = useState(false)
 
   const volumes = useMemo(() => volumesOf(state, book.id), [state, book.id])
 
@@ -108,6 +110,10 @@ export default function Workspace({ book }: { book: Book }) {
           </button>
         </div>
 
+        <button className="icon-btn square" title="AI 接口设置" onClick={() => setShowAi(true)}>
+          <Sparkles size={17} />
+        </button>
+
         <button
           className="icon-btn square"
           title={theme === 'dark' ? '切换到明亮主题' : '切换到暗黑主题'}
@@ -142,6 +148,7 @@ export default function Workspace({ book }: { book: Book }) {
       </div>
 
       <StatsBar book={book} chapter={currentChapter} />
+      {showAi && <AiSettingsModal onClose={() => setShowAi(false)} />}
     </div>
   )
 }

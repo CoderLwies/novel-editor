@@ -320,5 +320,6 @@ export function createSeedState(): AppState {
       lastBookId: bookId,
       lastChapterId: 'ch_3',
     },
+    ai: { baseUrl: '', apiKey: '', model: '' },
   }
 }

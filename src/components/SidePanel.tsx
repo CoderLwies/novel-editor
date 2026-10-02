@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Plus, Trash2, User, Map, ScrollText, Swords, Package, Users, BookMarked, ChevronDown, ChevronRight } from 'lucide-react'
+import { Plus, Trash2, User, Map, ScrollText, Swords, Package, Users, BookMarked, ChevronDown, ChevronRight, Wand2, GitBranch, RefreshCcw, ShieldCheck, Loader2 } from 'lucide-react'
 import { useStore, actions, volumesOf, chaptersOf } from '../store'
 import type { Book, Chapter, SettingCategory, ForeshadowStatus, OutlineStatus, ID } from '../types'
 import { countWords, formatNumber } from '../utils'
+import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, type GenWriteback } from '../ai'
+import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal } from './AiModals'
 
 export type SideTab = 'outline' | 'characters' | 'settings' | 'foreshadow'
 
@@ -82,6 +84,13 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
   const volumes = volumesOf(state, book.id)
   const [openVols, setOpenVols] = useState<Set<ID>>(() => new Set(volumes.map((v) => v.id)))
   const [openCh, setOpenCh] = useState<ID | null>(chapter?.id ?? null)
+  const [aiModal, setAiModal] = useState<
+    | { kind: 'split'; volId: ID }
+    | { kind: 'branch'; chId: ID }
+    | { kind: 'check' }
+    | null
+  >(null)
+  const [showAiSettings, setShowAiSettings] = useState(false)
   const castPool = state.characters.filter((c) => c.bookId === book.id)
   const fsPool = state.foreshadows.filter((f) => f.bookId === book.id)
 
@@ -111,7 +120,12 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
         onChange={(e) => actions.updateBook(book.id, { synopsis: e.target.value })}
       />
 
-      <div className="side-section-label" style={{ marginTop: 16 }}>三级大纲</div>
+      <div className="side-section-label" style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span>三级大纲</span>
+        <button className="icon-btn" title="一致性巡检" onClick={() => setAiModal({ kind: 'check' })}>
+          <ShieldCheck size={13} />
+        </button>
+      </div>
       {volumes.map((v) => {
         const chs = chaptersOf(state, v.id)
         const open = openVols.has(v.id)
@@ -121,6 +135,16 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
               {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               <span className="ol-vol-title">{v.title}</span>
               <span className="ol-vol-count">{chs.length} 章</span>
+              <button
+                className="icon-btn"
+                title="AI 拆章纲（依据总纲与卷纲）"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setAiModal({ kind: 'split', volId: v.id })
+                }}
+              >
+                <Wand2 size={13} />
+              </button>
               <button
                 className="icon-btn"
                 title="在本卷新建计划章"
@@ -176,6 +200,12 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
                                 {OS_META[k].label}
                               </button>
                             ))}
+                          </div>
+                          <div className="ol-ai-row">
+                            <button className="btn btn-ghost" onClick={() => setAiModal({ kind: 'branch', chId: c.id })}>
+                              <GitBranch size={13} /> AI 分支
+                            </button>
+                            <WritebackBtn book={book} chapter={c} />
                           </div>
                           <OlText label="一句话概括" rows={2} value={c.synopsis}
                             placeholder="本章讲什么…"
@@ -238,7 +268,61 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
           </div>
         )
       })}
+
+      {aiModal?.kind === 'split' && (
+        <AiSplitModal
+          book={book}
+          vol={volumes.find((v) => v.id === (aiModal as { volId: ID }).volId)!}
+          onClose={() => setAiModal(null)}
+          onOpenSettings={() => { setAiModal(null); setShowAiSettings(true) }}
+        />
+      )}
+      {aiModal?.kind === 'branch' && (
+        <AiBranchModal
+          book={book}
+          chapter={state.chapters.find((c) => c.id === (aiModal as { chId: ID }).chId)!}
+          onClose={() => setAiModal(null)}
+          onOpenSettings={() => { setAiModal(null); setShowAiSettings(true) }}
+        />
+      )}
+      {aiModal?.kind === 'check' && <AiCheckModal book={book} onClose={() => setAiModal(null)} />}
+      {showAiSettings && <AiSettingsModal onClose={() => setShowAiSettings(false)} />}
     </div>
+  )
+}
+
+function WritebackBtn({ book, chapter }: { book: Book; chapter: Chapter }) {
+  const state = useStore()
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  async function run() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await chatJSON<GenWriteback>(state.ai, SYS_PLANNER, writebackPrompt(book, chapter))
+      const chars = state.characters.filter((c) => c.bookId === book.id)
+      actions.updateChapter(chapter.id, {
+        synopsis: r.synopsis || chapter.synopsis,
+        turning: r.turning || chapter.turning,
+        hook: r.hook || chapter.hook,
+        outlineStatus: 'written',
+        cast: snapshotCast(chapter.content, chars, chapter.cast),
+      })
+      setMsg('已回写')
+    } catch (e) {
+      setMsg((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <button className="btn btn-ghost" onClick={run} disabled={busy || countWords(chapter.content) === 0}
+      title={countWords(chapter.content) === 0 ? '正文为空，无法回写' : 'AI 归纳正文实际走向并回写章纲'}>
+      {busy ? <Loader2 size={13} className="spin" /> : <RefreshCcw size={13} />} 回写章纲
+      {msg && <span className={`ai-inline-${msg === '已回写' ? 'ok' : 'err'}`}>{msg}</span>}
+    </button>
   )
 }
 

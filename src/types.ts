@@ -99,6 +99,13 @@ export interface UIState {
   lastChapterId: ID | null
 }
 
+/** OpenAI 兼容接口配置；baseUrl 为空表示未启用 AI */
+export interface AIConfig {
+  baseUrl: string
+  apiKey: string
+  model: string
+}
+
 export interface AppState {
   books: Book[]
   volumes: Volume[]
@@ -108,4 +115,5 @@ export interface AppState {
   foreshadows: Foreshadow[]
   dailyLog: DailyLog
   ui: UIState
+  ai: AIConfig
 }

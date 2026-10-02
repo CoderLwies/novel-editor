@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const fsp = fs.promises
 const os = require('os')
+const http = require('http')
 
 const outDir = path.join(__dirname, '..', '.preview')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -10,6 +11,48 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mozhang-e2e-'))
 // save dialog is stubbed too, so exports can be asserted headlessly
 const stubSavePath = path.join(stubDir, 'exported-outline.md')
+
+// loopback fake OpenAI-compatible server: canned JSON per prompt kind
+function startFakeAi() {
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      res.setHeader('access-control-allow-origin', '*')
+      res.setHeader('access-control-allow-headers', 'content-type, authorization')
+      res.setHeader('access-control-allow-methods', 'POST, OPTIONS')
+      if (req.method === 'OPTIONS') {
+        res.end()
+        return
+      }
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', () => {
+        let payload
+        if (body.includes('规划 3 到 6 个新章节')) {
+          payload = {
+            chapters: [
+              { title: '第六章 夜探', synopsis: 'AI拆纲S1', goal: 'g1', conflict: 'c1', turning: 't1', hook: 'h1', pov: '林尘' },
+              { title: '第七章 反杀', synopsis: 'AI拆纲S2', goal: 'g2', conflict: 'c2', turning: 't2', hook: 'h2', pov: '林尘' },
+            ],
+          }
+        } else if (body.includes('剧情走向分支')) {
+          payload = {
+            branches: [
+              { label: '隐忍', synopsis: '分支B1', turning: 'tb1', hook: 'hb1' },
+              { label: '摊牌', synopsis: '分支B2', turning: 'tb2', hook: 'hb2' },
+            ],
+          }
+        } else if (body.includes('实际走向')) {
+          payload = { synopsis: '回写概要E2E', turning: '回写转折E2E', hook: '回写钩子E2E' }
+        } else {
+          payload = { ok: true }
+        }
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payload) } }] }))
+      })
+    })
+    srv.listen(0, '127.0.0.1', () => resolve(srv))
+  })
+}
 
 ipcMain.handle('fs:readFile', async (_e, p) => fsp.readFile(p, 'utf8'))
 ipcMain.handle('fs:writeFile', async (_e, p, content) => {
@@ -193,6 +236,77 @@ async function main() {
   console.log('E2E v1 compat -> imported:', !!v1Book,
     '| body intact:', v1Ch?.content === '旧版正文，无 frontmatter。',
     '| outlineStatus default:', v1Ch?.outlineStatus)
+
+  // 5) Phase 3 AI：拆章纲 / 分支 / 回写 / 巡检（loopback 假服务）
+  const aiSrv = await startFakeAi()
+  const aiPort = aiSrv.address().port
+  await js(`(() => {
+    const K = 'novel-editor-state-v1'
+    const s = JSON.parse(localStorage.getItem(K))
+    s.ai = { baseUrl: 'http://127.0.0.1:${aiPort}', apiKey: '', model: 'fake' }
+    localStorage.setItem(K, JSON.stringify(s))
+  })()`)
+  await win.reload()
+  await sleep(1400)
+  await js(`document.querySelector('button[title="返回书架"]').click()`)
+  await sleep(600)
+  await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('混沌神尊'))?.click()`)
+  await sleep(700)
+
+  // 5a) AI 拆章纲：预览 + 勾选创建
+  await js(`document.querySelector('button[title="AI 拆章纲（依据总纲与卷纲）"]').click()`)
+  await sleep(900)
+  const splitItems = await js(`document.querySelectorAll('.modal .ai-item').length`)
+  await shot('13-ai-split.png')
+  await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('创建所选章节'))?.click()`)
+  await sleep(700)
+  const stAi = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const s1 = stAi.chapters.find((c) => c.synopsis === 'AI拆纲S1')
+  console.log('E2E ai split -> preview items:', splitItems,
+    '| created:', !!s1, '| status:', s1?.outlineStatus, '| pov:', s1?.pov)
+
+  // 5b) AI 分支：采用第一条
+  await js(`(() => {
+    const heads = [...document.querySelectorAll('.ol-ch-head')]
+    const target = heads.find((h) => h.textContent.includes('第一章'))
+    const wrap = target?.closest('.ol-ch')
+    if (wrap && !wrap.classList.contains('open')) target.click()
+  })()`)
+  await sleep(400)
+  await js(`[...document.querySelectorAll('.ol-ai-row .btn')].find(b=>b.textContent.includes('AI 分支'))?.click()`)
+  await sleep(900)
+  const branchItems = await js(`document.querySelectorAll('.modal .ai-item').length`)
+  await js(`[...document.querySelectorAll('.modal .ai-item .btn')].find(b=>b.textContent.includes('采用'))?.click()`)
+  await sleep(600)
+  const stBr = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const ch1 = stBr.chapters.find((c) => c.id === 'ch_1')
+  console.log('E2E ai branch -> items:', branchItems, '| adopted synopsis:', ch1?.synopsis === '分支B1')
+
+  // 5c) 写后回写 + 本地事实快照
+  await js(`[...document.querySelectorAll('.ol-ai-row .btn')].find(b=>b.textContent.includes('回写章纲'))?.click()`)
+  await sleep(1000)
+  const stWb = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const ch1w = stWb.chapters.find((c) => c.id === 'ch_1')
+  console.log('E2E ai writeback -> synopsis:', ch1w?.synopsis === '回写概要E2E',
+    '| turning:', ch1w?.turning === '回写转折E2E',
+    '| status:', ch1w?.outlineStatus,
+    '| cast snapshot has 林尘:', ch1w?.cast?.includes('char_1'))
+
+  // 5d) 一致性巡检
+  await js(`document.querySelector('button[title="一致性巡检"]').click()`)
+  await sleep(500)
+  const issueCount = await js(`document.querySelectorAll('.modal .ai-issue').length`)
+  await shot('14-ai-check.png')
+  await js(`document.querySelector('.modal-head .icon-btn')?.click()`)
+  await sleep(300)
+
+  // 5e) AI 设置弹窗
+  await js(`document.querySelector('button[title="AI 接口设置"]').click()`)
+  await sleep(400)
+  await shot('15-ai-settings.png')
+  const settingsVal = await js(`document.querySelector('.modal input.field')?.value`)
+  console.log('E2E ai check -> issues:', issueCount, '| settings baseUrl shown:', settingsVal?.includes('127.0.0.1'))
+  aiSrv.close()
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
