@@ -140,6 +140,17 @@ async function main() {
     '| has goal:', outlineMd.includes('纲目标E2E标记'),
     '| has status:', /纲状态：(已成文|已修纲)/.test(outlineMd))
 
+  // 2e) 章节 md 自带 frontmatter；外部编辑后导入可回读
+  const chFile = path.join(stubDir, 'chapters', files[0])
+  let md = fs.readFileSync(chFile, 'utf8')
+  const hasFm = md.startsWith('---\n')
+  const fmHasGoal = /goal: 纲目标E2E标记/.test(md)
+  const version2 = bj?.version === 2
+  md = md.replace(/^---\n/, '---\nsynopsis: 外部改纲E2E\n')
+  md += '\n外部追加正文E2E。'
+  fs.writeFileSync(chFile, md)
+  console.log('E2E frontmatter write -> md has fm:', hasFm, '| fm carries goal:', fmHasGoal, '| book.json v2:', version2)
+
   // 3) 从书架导入同一目录，验证往返
   await js(`document.querySelector('button[title="返回书架"]').click()`)
   await sleep(500)
@@ -152,7 +163,36 @@ async function main() {
   await sleep(600)
   const titles = await js(`[...document.querySelectorAll('.book-cover-title')].map(e=>e.textContent).join(' | ')`)
   console.log('E2E import round-trip -> shelf:', titles)
+  const st = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const dupBooks = st.books.filter((b) => b.title === '测试新书')
+  const readback = dupBooks.some((b) => {
+    const c = st.chapters.find((x) => x.bookId === b.id)
+    return c?.synopsis === '外部改纲E2E' && (c?.content ?? '').includes('外部追加正文E2E') && c?.goal === '纲目标E2E标记'
+  })
+  console.log('E2E frontmatter readback -> external edit imported:', readback, '| copies:', dupBooks.length)
   await shot('11-after-newbook-import.png')
+
+  // 4) v1 旧项目目录兼容：无 frontmatter、version 1 仍可导入
+  const v1Dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mozhang-v1-'))
+  fs.mkdirSync(path.join(v1Dir, 'chapters'), { recursive: true })
+  fs.writeFileSync(path.join(v1Dir, 'chapters', '0001_旧章.md'), '旧版正文，无 frontmatter。')
+  fs.writeFileSync(path.join(v1Dir, 'book.json'), JSON.stringify({
+    format: 'novel-editor-project',
+    version: 1,
+    book: { id: 'v1b', title: '旧版书', author: 'a', genre: 'g', synopsis: '', coverColor: '#123456', status: 'ongoing', dailyGoal: 3000, createdAt: 1, updatedAt: 1 },
+    volumes: [{ id: 'v1v', bookId: 'v1b', title: '第一卷', order: 0 }],
+    chaptersMeta: [{ id: 'v1c', volumeId: 'v1v', title: '旧章', order: 0, status: 'draft', synopsis: '', file: '0001_旧章.md' }],
+    characters: [], settings: [], foreshadows: [],
+  }, null, 2))
+  stubDir = v1Dir
+  await js(`[...document.querySelectorAll('.btn')].find(b=>b.textContent.includes('导入项目目录'))?.click()`)
+  await sleep(1200)
+  const st2 = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const v1Book = st2.books.find((b) => b.title === '旧版书')
+  const v1Ch = st2.chapters.find((c) => c.bookId === v1Book?.id)
+  console.log('E2E v1 compat -> imported:', !!v1Book,
+    '| body intact:', v1Ch?.content === '旧版正文，无 frontmatter。',
+    '| outlineStatus default:', v1Ch?.outlineStatus)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

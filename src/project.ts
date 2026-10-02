@@ -10,10 +10,11 @@ import type {
   ID,
 } from './types'
 import { fsLow } from './fs'
+import { encodeFrontmatter, parseFrontmatter } from './frontmatter'
 import { countWords } from './utils'
 
 export const PROJECT_FORMAT = 'novel-editor-project'
-export const PROJECT_VERSION = 1
+export const PROJECT_VERSION = 2
 
 export interface ChapterMeta {
   id: ID
@@ -98,7 +99,22 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
       foreshadowIds: c.foreshadowIds,
       outlineStatus: c.outlineStatus,
     })
-    await fsLow.writeFile(joinPath(dir, 'chapters', file), c.content)
+    await fsLow.writeFile(
+      joinPath(dir, 'chapters', file),
+      encodeFrontmatter({
+        title: c.title,
+        status: c.status,
+        outlineStatus: c.outlineStatus,
+        synopsis: c.synopsis,
+        goal: c.goal,
+        conflict: c.conflict,
+        turning: c.turning,
+        hook: c.hook,
+        pov: c.pov,
+        cast: c.cast,
+        foreshadowIds: c.foreshadowIds,
+      }) + c.content,
+    )
   }
 
   const payload = {
@@ -125,18 +141,37 @@ export async function readProjectFromDir(dir: string): Promise<ProjectData> {
   }
 
   const chapterContents: Record<ID, string> = {}
+  const chaptersMeta: ChapterMeta[] = []
   for (const meta of parsed.chaptersMeta as ChapterMeta[]) {
+    let raw = ''
     try {
-      chapterContents[meta.id] = await fsLow.readFile(joinPath(dir, 'chapters', meta.file))
+      raw = await fsLow.readFile(joinPath(dir, 'chapters', meta.file))
     } catch {
-      chapterContents[meta.id] = ''
+      raw = ''
     }
+    // md 头部 frontmatter 优先（外部编辑器改过的纲信息可回读）
+    const { data, body } = parseFrontmatter(raw)
+    chapterContents[meta.id] = body
+    chaptersMeta.push({
+      ...meta,
+      title: data.title ?? meta.title,
+      status: (data.status as ChapterStatus) ?? meta.status,
+      outlineStatus: (data.outlineStatus as OutlineStatus) ?? meta.outlineStatus,
+      synopsis: data.synopsis ?? meta.synopsis,
+      goal: data.goal ?? meta.goal,
+      conflict: data.conflict ?? meta.conflict,
+      turning: data.turning ?? meta.turning,
+      hook: data.hook ?? meta.hook,
+      pov: data.pov ?? meta.pov,
+      cast: data.cast ?? meta.cast,
+      foreshadowIds: data.foreshadowIds ?? meta.foreshadowIds,
+    })
   }
 
   return {
     book: parsed.book,
     volumes: parsed.volumes ?? [],
-    chaptersMeta: parsed.chaptersMeta ?? [],
+    chaptersMeta,
     chapterContents,
     characters: parsed.characters ?? [],
     settings: parsed.settings ?? [],
@@ -238,7 +273,8 @@ const MD_H1 = /^#\s+(.+)/
 const MD_H2 = /^#{2,}\s+(.+)/
 const EN_CH = /^chapter\s+\d+/i
 
-export function parseSingleText(text: string, fallbackTitle: string): ProjectData {
+export function parseSingleText(rawText: string, fallbackTitle: string): ProjectData {
+  const text = parseFrontmatter(rawText).body
   const lines = text.replace(/\r\n?/g, '\n').split('\n')
   const volumes: Volume[] = []
   const chaptersMeta: ChapterMeta[] = []
