@@ -137,7 +137,7 @@ export async function readProjectFromDir(dir: string): Promise<ProjectData> {
   const raw = await fsLow.readFile(bookJsonPath)
   const parsed = JSON.parse(raw)
   if (parsed?.format !== PROJECT_FORMAT) {
-    throw new Error('不是有效的墨章项目目录（缺少 book.json）')
+    throw new Error('不是有效的字舟项目目录（缺少 book.json）')
   }
 
   const chapterContents: Record<ID, string> = {}

@@ -33,7 +33,7 @@ export default function Bookshelf() {
       const dir = await pickDirectory()
       if (!dir) return
       if (!(await isProjectDir(dir))) {
-        flash('所选目录不是有效的墨章项目（缺少 book.json）')
+        flash('所选目录不是有效的字舟项目（缺少 book.json）')
         return
       }
       const data = await readProjectFromDir(dir)
@@ -69,9 +69,9 @@ export default function Bookshelf() {
     <div className="bookshelf">
       <div className="bookshelf-head">
         <div className="brand-mark">
-          <img className="brand-logo" src="./logo.png" alt="墨章" />
+          <img className="brand-logo" src="./logo.png" alt="字舟" />
           <div>
-            <div className="bookshelf-title">墨章 · 网文编辑器</div>
+            <div className="bookshelf-title">字舟 · 网文编辑器</div>
             <div className="bookshelf-sub">
               {state.books.length} 部作品 · {totalChapters} 章 · 累计 {formatNumber(totalWords)} 字
             </div>
@@ -91,7 +91,7 @@ export default function Bookshelf() {
               className="btn btn-ghost"
               disabled={busy}
               onClick={importFolder}
-              title="导入之前导出的墨章项目文件夹（含 book.json）"
+              title="导入之前导出的字舟项目文件夹（含 book.json）"
             >
               <FolderInput size={16} /> 导入项目目录
             </button>

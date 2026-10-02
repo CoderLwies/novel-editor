@@ -1,6 +1,6 @@
-# 墨章 · 网文小说编辑器
+# 字舟 · 网文小说编辑器
 
-<img src="public/logo.png" alt="墨章 logo" width="96" align="right" />
+<img src="public/logo.png" alt="字舟 logo" width="96" align="right" />
 
 面向网文连载作者的桌面写作工具。**编辑器优先**——把码字、章节管理、设定集与大纲做扎实，AI 作为叠加层辅助策划与一致性校验。
 
@@ -28,7 +28,7 @@ Electron 桌面应用 · React + Vite + TypeScript · 无后端，数据保存�
   - `book.json`（项目元数据，version 2）
   - `chapters/NNNN_标题.md`（正文 + YAML frontmatter 携带章纲字段）
 - **外部编辑器改 md 可回读**：重新导入时 frontmatter 优先合并
-- 导入：墨章项目目录 / 单个 TXT·MD（自动拆卷章）；兼容旧版 v1 项目
+- 导入：字舟项目目录 / 单个 TXT·MD（自动拆卷章）；兼容旧版 v1 项目
 - 导出：项目包 / 纯 TXT / Markdown / 全书大纲
 
 ### AI 辅助（当前仅支持 `deepseek-flash`）
@@ -128,7 +128,7 @@ cast: [char_1]
 正文内容……
 ```
 
-外部工具直接编辑该 md（含 frontmatter）后，在墨章中重新导入即可回读。
+外部工具直接编辑该 md（含 frontmatter）后，在字舟中重新导入即可回读。
 
 ---
 

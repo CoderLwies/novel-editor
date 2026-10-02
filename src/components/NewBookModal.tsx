@@ -23,7 +23,7 @@ export default function NewBookModal({ onClose }: { onClose: () => void }) {
       return
     }
     if (dir && (await isProjectDir(dir))) {
-      alert('所选目录已是一个墨章项目（存在 book.json）。\n请选一个空目录，或在书架用「导入项目目录」打开它。')
+      alert('所选目录已是一个字舟项目（存在 book.json）。\n请选一个空目录，或在书架用「导入项目目录」打开它。')
       return
     }
     const book = actions.createBook({ title: title.trim(), author, genre, coverColor: color, dailyGoal, synopsis })
