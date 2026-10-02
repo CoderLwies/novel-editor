@@ -206,7 +206,7 @@ async function main() {
   await sleep(600)
   const titles = await js(`[...document.querySelectorAll('.book-cover-title')].map(e=>e.textContent).join(' | ')`)
   console.log('E2E import round-trip -> shelf:', titles)
-  const st = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const st = JSON.parse(await js(`localStorage.getItem('zizhou-state-v1')`))
   const dupBooks = st.books.filter((b) => b.title === '测试新书')
   const readback = dupBooks.some((b) => {
     const c = st.chapters.find((x) => x.bookId === b.id)
@@ -230,7 +230,7 @@ async function main() {
   stubDir = v1Dir
   await js(`[...document.querySelectorAll('.btn')].find(b=>b.textContent.includes('导入项目目录'))?.click()`)
   await sleep(1200)
-  const st2 = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const st2 = JSON.parse(await js(`localStorage.getItem('zizhou-state-v1')`))
   const v1Book = st2.books.find((b) => b.title === '旧版书')
   const v1Ch = st2.chapters.find((c) => c.bookId === v1Book?.id)
   console.log('E2E v1 compat -> imported:', !!v1Book,
@@ -241,7 +241,7 @@ async function main() {
   const aiSrv = await startFakeAi()
   const aiPort = aiSrv.address().port
   await js(`(() => {
-    const K = 'novel-editor-state-v1'
+    const K = 'zizhou-state-v1'
     const s = JSON.parse(localStorage.getItem(K))
     s.ai = { baseUrl: 'http://127.0.0.1:${aiPort}', apiKey: '', model: 'fake' }
     localStorage.setItem(K, JSON.stringify(s))
@@ -260,7 +260,7 @@ async function main() {
   await shot('13-ai-split.png')
   await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('创建所选章节'))?.click()`)
   await sleep(700)
-  const stAi = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const stAi = JSON.parse(await js(`localStorage.getItem('zizhou-state-v1')`))
   const s1 = stAi.chapters.find((c) => c.synopsis === 'AI拆纲S1')
   console.log('E2E ai split -> preview items:', splitItems,
     '| created:', !!s1, '| status:', s1?.outlineStatus, '| pov:', s1?.pov)
@@ -278,14 +278,14 @@ async function main() {
   const branchItems = await js(`document.querySelectorAll('.modal .ai-item').length`)
   await js(`[...document.querySelectorAll('.modal .ai-item .btn')].find(b=>b.textContent.includes('采用'))?.click()`)
   await sleep(600)
-  const stBr = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const stBr = JSON.parse(await js(`localStorage.getItem('zizhou-state-v1')`))
   const ch1 = stBr.chapters.find((c) => c.id === 'ch_1')
   console.log('E2E ai branch -> items:', branchItems, '| adopted synopsis:', ch1?.synopsis === '分支B1')
 
   // 5c) 写后回写 + 本地事实快照
   await js(`[...document.querySelectorAll('.ol-ai-row .btn')].find(b=>b.textContent.includes('回写章纲'))?.click()`)
   await sleep(1000)
-  const stWb = JSON.parse(await js(`localStorage.getItem('novel-editor-state-v1')`))
+  const stWb = JSON.parse(await js(`localStorage.getItem('zizhou-state-v1')`))
   const ch1w = stWb.chapters.find((c) => c.id === 'ch_1')
   console.log('E2E ai writeback -> synopsis:', ch1w?.synopsis === '回写概要E2E',
     '| turning:', ch1w?.turning === '回写转折E2E',
@@ -307,6 +307,15 @@ async function main() {
   const settingsVal = await js(`document.querySelector('.modal input.field')?.value`)
   console.log('E2E ai check -> issues:', issueCount, '| settings baseUrl shown:', settingsVal?.includes('127.0.0.1'))
   aiSrv.close()
+
+  // 5f) 旧 localStorage 键迁移：状态搬到旧键、删新键，reload 后应自动迁回新键
+  const booksBefore = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).books.length`)
+  await js(`localStorage.setItem('novel-editor-state-v1', localStorage.getItem('zizhou-state-v1')); localStorage.removeItem('zizhou-state-v1')`)
+  await win.reload()
+  await sleep(1200)
+  const migRaw = await js(`localStorage.getItem('zizhou-state-v1')`)
+  const booksAfter = migRaw ? JSON.parse(migRaw).books.length : -1
+  console.log('E2E legacy key migration -> new key restored:', !!migRaw, '| books kept:', booksBefore === booksAfter)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

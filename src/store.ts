@@ -15,11 +15,16 @@ import { createSeedState } from './seed'
 import { DEFAULT_AI_BASE_URL, AI_MODEL } from './ai'
 import { countWords, todayKey, uid } from './utils'
 
-const STORAGE_KEY = 'novel-editor-state-v1'
+const STORAGE_KEY = 'zizhou-state-v1'
+const LEGACY_STORAGE_KEY = 'novel-editor-state-v1'
 
 function load(): AppState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    let raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) {
+      raw = localStorage.getItem(LEGACY_STORAGE_KEY)
+      if (raw) localStorage.setItem(STORAGE_KEY, raw)
+    }
     if (raw) {
       const parsed = JSON.parse(raw) as AppState
       if (parsed && Array.isArray(parsed.books)) return migrate(parsed)

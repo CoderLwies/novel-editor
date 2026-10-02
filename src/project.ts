@@ -13,7 +13,9 @@ import { fsLow } from './fs'
 import { encodeFrontmatter, parseFrontmatter } from './frontmatter'
 import { countWords } from './utils'
 
-export const PROJECT_FORMAT = 'novel-editor-project'
+export const PROJECT_FORMAT = 'zizhou-project'
+/** 改名前的 format marker，读取时兼容 */
+const LEGACY_PROJECT_FORMAT = 'novel-editor-project'
 export const PROJECT_VERSION = 2
 
 export interface ChapterMeta {
@@ -136,7 +138,7 @@ export async function readProjectFromDir(dir: string): Promise<ProjectData> {
   const bookJsonPath = joinPath(dir, 'book.json')
   const raw = await fsLow.readFile(bookJsonPath)
   const parsed = JSON.parse(raw)
-  if (parsed?.format !== PROJECT_FORMAT) {
+  if (parsed?.format !== PROJECT_FORMAT && parsed?.format !== LEGACY_PROJECT_FORMAT) {
     throw new Error('不是有效的字舟项目目录（缺少 book.json）')
   }
 

@@ -105,7 +105,7 @@ npm run electron:build
 
 ```
 <作品目录>/
-├── book.json                 # format: novel-editor-project, version: 2
+├── book.json                 # format: zizhou-project, version: 2
 └── chapters/
     ├── 0001_第一章 标题.md
     └── 0002_第二章 标题.md
