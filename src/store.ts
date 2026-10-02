@@ -12,6 +12,7 @@ import type {
 } from './types'
 import type { ProjectData } from './project'
 import { createSeedState } from './seed'
+import { DEFAULT_AI_BASE_URL, AI_MODEL } from './ai'
 import { countWords, todayKey, uid } from './utils'
 
 const STORAGE_KEY = 'novel-editor-state-v1'
@@ -49,7 +50,18 @@ function migrate(raw: AppState): AppState {
       outlineStatus: old.outlineStatus ?? (countWords(old.content ?? '') > 0 ? 'written' : 'plan'),
     }
   })
-  return { ...raw, volumes, chapters, ai: raw.ai ?? { baseUrl: '', apiKey: '', model: '' } }
+  const ai = raw.ai
+  return {
+    ...raw,
+    volumes,
+    chapters,
+    // 模型固定为 deepseek-flash；baseUrl 沿用用户已填值，否则回落到官方端点
+    ai: {
+      baseUrl: ai?.baseUrl?.trim() ? ai.baseUrl : DEFAULT_AI_BASE_URL,
+      apiKey: ai?.apiKey ?? '',
+      model: AI_MODEL,
+    },
+  }
 }
 
 let state: AppState = load()
@@ -342,7 +354,7 @@ export const actions = {
     set((s) => ({ ...s, ui: { ...s.ui, theme } }))
   },
   setAiConfig(patch: Partial<AIConfig>) {
-    set((s) => ({ ...s, ai: { ...s.ai, ...patch } }))
+    set((s) => ({ ...s, ai: { ...s.ai, ...patch, model: AI_MODEL } }))
   },
   setFontSize(fontSize: number) {
     set((s) => ({ ...s, ui: { ...s.ui, fontSize: Math.min(28, Math.max(13, fontSize)) } }))

@@ -18,7 +18,7 @@ import {
 function AiGuard({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
     <div className="ai-err">
-      尚未配置 AI 接口。墨章对接 OpenAI 兼容协议（baseUrl + model，可选 apiKey）。
+      尚未配置 AI 接口。当前仅支持 DeepSeek（deepseek-flash）：填写 Base URL 与 API Key 即可，兼容中转站。
       <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={onOpenSettings}>
         <PlugZap size={14} /> 去配置
       </button>
@@ -61,11 +61,11 @@ export function AiSettingsModal({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-      <label className="lbl">Base URL（OpenAI 兼容，如 https://api.xxx.com/v1）</label>
+      <label className="lbl">Base URL（DeepSeek 官方或兼容中转）</label>
       <input
         className="field"
         value={ai.baseUrl}
-        placeholder="https://api.openai.com/v1"
+        placeholder="https://api.deepseek.com"
         onChange={(e) => actions.setAiConfig({ baseUrl: e.target.value })}
       />
       <label className="lbl">API Key（可留空，用于本地免鉴权服务）</label>
@@ -76,12 +76,13 @@ export function AiSettingsModal({ onClose }: { onClose: () => void }) {
         placeholder="sk-…"
         onChange={(e) => actions.setAiConfig({ apiKey: e.target.value })}
       />
-      <label className="lbl">模型名</label>
+      <label className="lbl">模型（当前仅支持 deepseek-flash）</label>
       <input
         className="field"
         value={ai.model}
-        placeholder="gpt-4o-mini / deepseek-chat …"
-        onChange={(e) => actions.setAiConfig({ model: e.target.value })}
+        readOnly
+        title="当前仅支持 deepseek-flash"
+        style={{ opacity: 0.7, cursor: 'not-allowed' }}
       />
       <div className="hint">
         配置仅保存在本机 localStorage；请求由桌面端直连你所填的地址。

@@ -1,6 +1,15 @@
 import type { AIConfig, AppState, Book, Volume, Chapter, Character, ID } from './types'
 import { countWords } from './utils'
 
+/** 当前仅支持 DeepSeek flash；baseUrl 预填官方端点，用户可改为兼容中转 */
+export const AI_MODEL = 'deepseek-flash'
+export const DEFAULT_AI_BASE_URL = 'https://api.deepseek.com'
+export const DEFAULT_AI_CONFIG: AIConfig = {
+  baseUrl: DEFAULT_AI_BASE_URL,
+  apiKey: '',
+  model: AI_MODEL,
+}
+
 export const aiReady = (c: AIConfig) => !!c.baseUrl.trim() && !!c.model.trim()
 
 export interface GenChapterOutline {

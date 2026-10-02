@@ -1,4 +1,5 @@
 import type { AppState } from './types'
+import { DEFAULT_AI_CONFIG } from './ai'
 import { todayKey } from './utils'
 
 const now = Date.now()
@@ -320,6 +321,6 @@ export function createSeedState(): AppState {
       lastBookId: bookId,
       lastChapterId: 'ch_3',
     },
-    ai: { baseUrl: '', apiKey: '', model: '' },
+    ai: { ...DEFAULT_AI_CONFIG },
   }
 }
