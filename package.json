@@ -33,6 +33,7 @@
   "build": {
     "appId": "com.prototype.zizhou",
     "productName": "ZiZhou",
+    "icon": "public/logo.png",
     "files": [
       "dist/**/*",
       "electron/**/*"
