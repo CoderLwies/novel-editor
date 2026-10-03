@@ -378,37 +378,60 @@ function OlText({
 
 function CharactersTab({ bookId }: { bookId: string }) {
   const state = useStore()
-  const list = state.characters.filter((c) => c.bookId === bookId)
+  const [q, setQ] = useState('')
+  const all = state.characters.filter((c) => c.bookId === bookId)
+  const kw = q.trim()
+  const list = kw ? all.filter((c) => `${c.name}${c.role}${c.desc}`.includes(kw)) : all
+  const chapters = state.chapters.filter((c) => c.bookId === bookId)
   return (
     <div className="side-scroll">
-      {list.length === 0 && <Empty text="还没有角色，点击下方新增" />}
-      {list.map((c) => (
-        <div className="card" key={c.id}>
-          <button className="card-del" onClick={() => actions.deleteCharacter(c.id)}><Trash2 size={14} /></button>
-          <div className="card-title">
-            <User size={14} style={{ color: 'var(--accent)' }} />
-            <input className="inline-edit" style={{ fontWeight: 600, fontSize: 13.5 }} value={c.name}
-              onChange={(e) => actions.updateCharacter(c.id, { name: e.target.value })} />
+      <FilterBox value={q} onChange={setQ} placeholder="搜索角色名 / 定位 / 设定…" />
+      {list.length === 0 && <Empty text={kw ? '没有匹配的角色' : '还没有角色，点击下方新增'} />}
+      {list.map((c) => {
+        const appear = chapters.filter((ch) => ch.cast.includes(c.id))
+        return (
+          <div className="card" key={c.id}>
+            <button className="card-del" onClick={() => actions.deleteCharacter(c.id)}><Trash2 size={14} /></button>
+            <div className="card-title">
+              <User size={14} style={{ color: 'var(--accent)' }} />
+              <input className="inline-edit" style={{ fontWeight: 600, fontSize: 13.5 }} value={c.name}
+                onChange={(e) => actions.updateCharacter(c.id, { name: e.target.value })} />
+            </div>
+            <input className="inline-edit" style={{ fontSize: 11.5, color: 'var(--accent)', marginTop: 4 }} value={c.role}
+              placeholder="定位（主角/反派…）"
+              onChange={(e) => actions.updateCharacter(c.id, { role: e.target.value })} />
+            {appear.length > 0 && (
+              <div className="fs-appear" style={{ marginTop: 6 }}>
+                <span className="fs-link-label">出场</span>
+                {appear.map((ch) => (
+                  <button key={ch.id} className="ol-chip sel" onClick={() => actions.selectChapter(ch.id)} title="跳转到该章">
+                    {ch.title}
+                  </button>
+                ))}
+              </div>
+            )}
+            <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={3}
+              value={c.desc} placeholder="角色设定、性格、动机…"
+              onChange={(e) => actions.updateCharacter(c.id, { desc: e.target.value })} />
           </div>
-          <input className="inline-edit" style={{ fontSize: 11.5, color: 'var(--accent)', marginTop: 4 }} value={c.role}
-            placeholder="定位（主角/反派…）"
-            onChange={(e) => actions.updateCharacter(c.id, { role: e.target.value })} />
-          <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={3}
-            value={c.desc} placeholder="角色设定、性格、动机…"
-            onChange={(e) => actions.updateCharacter(c.id, { desc: e.target.value })} />
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
 function SettingsTab({ bookId }: { bookId: string }) {
   const state = useStore()
-  const list = state.settings.filter((c) => c.bookId === bookId)
+  const [q, setQ] = useState('')
+  const all = state.settings.filter((c) => c.bookId === bookId)
+  const kw = q.trim()
+  const list = kw ? all.filter((i) => `${i.name}${i.desc}${i.status ?? ''}`.includes(kw)) : all
+  const chapters = state.chapters.filter((c) => c.bookId === bookId)
   const cats = Object.keys(CATEGORY_META) as SettingCategory[]
   return (
     <div className="side-scroll">
-      {list.length === 0 && <Empty text="还没有设定，点击下方新增" />}
+      <FilterBox value={q} onChange={setQ} placeholder="搜索设定名 / 描述 / 状态…" />
+      {list.length === 0 && <Empty text={kw ? '没有匹配的设定' : '还没有设定，点击下方新增'} />}
       {cats.map((cat) => {
         const items = list.filter((i) => i.category === cat)
         if (items.length === 0) return null
@@ -418,18 +441,38 @@ function SettingsTab({ bookId }: { bookId: string }) {
             <div className="side-section-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12 }}>
               <Icon size={12} /> {CATEGORY_META[cat].label}
             </div>
-            {items.map((it) => (
-              <div className="card" key={it.id}>
-                <button className="card-del" onClick={() => actions.deleteSetting(it.id)}><Trash2 size={14} /></button>
-                <div className="card-title">
-                  <input className="inline-edit" style={{ fontWeight: 600, fontSize: 13.5 }} value={it.name}
-                    onChange={(e) => actions.updateSetting(it.id, { name: e.target.value })} />
+            {items.map((it) => {
+              const appear = it.name ? chapters.filter((ch) => ch.content.includes(it.name)) : []
+              return (
+                <div className="card" key={it.id}>
+                  <button className="card-del" onClick={() => actions.deleteSetting(it.id)}><Trash2 size={14} /></button>
+                  <div className="card-title">
+                    <input className="inline-edit" style={{ fontWeight: 600, fontSize: 13.5 }} value={it.name}
+                      onChange={(e) => actions.updateSetting(it.id, { name: e.target.value })} />
+                  </div>
+                  <input className="inline-edit" style={{ fontSize: 11.5, color: 'var(--accent)', marginTop: 4 }}
+                    value={it.status ?? ''}
+                    placeholder="当前状态（活跃/覆灭/已毁…）"
+                    onChange={(e) => actions.updateSetting(it.id, { status: e.target.value })} />
+                  {appear.length > 0 && (
+                    <div className="fs-appear" style={{ marginTop: 6 }}>
+                      <span className="fs-link-label">出现</span>
+                      {appear.slice(0, 6).map((ch) => (
+                        <button key={ch.id} className="ol-chip sel" onClick={() => actions.selectChapter(ch.id)} title="跳转到该章">
+                          {ch.title}
+                        </button>
+                      ))}
+                      {appear.length > 6 && (
+                        <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>+{appear.length - 6}</span>
+                      )}
+                    </div>
+                  )}
+                  <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={2}
+                    value={it.desc} placeholder="设定描述…"
+                    onChange={(e) => actions.updateSetting(it.id, { desc: e.target.value })} />
                 </div>
-                <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={2}
-                  value={it.desc} placeholder="设定描述…"
-                  onChange={(e) => actions.updateSetting(it.id, { desc: e.target.value })} />
-              </div>
-            ))}
+              )
+            })}
           </div>
         )
       })}
@@ -439,7 +482,10 @@ function SettingsTab({ bookId }: { bookId: string }) {
 
 function ForeshadowTab({ bookId }: { bookId: string }) {
   const state = useStore()
-  const list = state.foreshadows.filter((c) => c.bookId === bookId)
+  const [q, setQ] = useState('')
+  const all = state.foreshadows.filter((c) => c.bookId === bookId)
+  const kw = q.trim()
+  const list = kw ? all.filter((f) => `${f.title}${f.detail}`.includes(kw)) : all
   const volumes = volumesOf(state, bookId)
   const volOrder = new Map(volumes.map((v, i) => [v.id, i] as [ID, number]))
   const chapters = state.chapters
@@ -457,6 +503,7 @@ function ForeshadowTab({ bookId }: { bookId: string }) {
 
   return (
     <div className="side-scroll">
+      <FilterBox value={q} onChange={setQ} placeholder="搜索伏笔标题 / 内容…" />
       <div className="side-section-label">埋 / 收时间线</div>
       {timeline.length === 0 && <Empty text="还没有伏笔挂接，去大纲 tab 给章节挂埋/收" />}
       {timeline.map((r) => (
@@ -474,7 +521,7 @@ function ForeshadowTab({ bookId }: { bookId: string }) {
       ))}
 
       <div className="side-section-label" style={{ marginTop: 14 }}>伏笔清单</div>
-      {list.length === 0 && <Empty text="还没有伏笔，点击下方登记" />}
+      {list.length === 0 && <Empty text={kw ? '没有匹配的伏笔' : '还没有伏笔，点击下方登记'} />}
       {list.map((f) => {
         const meta = FS_META[f.status]
         const plantIn = chapters.filter((c) => c.foreshadowIds.includes(f.id))
@@ -541,6 +588,18 @@ function ForeshadowTab({ bookId }: { bookId: string }) {
         )
       })}
     </div>
+  )
+}
+
+function FilterBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <input
+      className="field"
+      style={{ marginBottom: 8, fontSize: 12 }}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+    />
   )
 }
 

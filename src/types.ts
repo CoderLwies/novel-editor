@@ -80,6 +80,8 @@ export interface SettingItem {
   category: SettingCategory
   name: string
   desc: string
+  /** 设定当前状态/演变（如势力：活跃/覆灭） */
+  status?: string
 }
 
 export interface Foreshadow {

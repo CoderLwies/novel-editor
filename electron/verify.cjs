@@ -416,6 +416,26 @@ async function main() {
   await shot('17-foreshadow-timeline.png')
   console.log('E2E fs timeline -> rows:', tlRows, '| plant/pay links shown:', linkShown)
 
+  // 8) P1 设定体系：角色出场 chips、设定状态字段、出现章节、搜索过滤
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='角色').click()`)
+  await sleep(400)
+  const castChips = await js(`document.querySelectorAll('.side .fs-appear .ol-chip').length`)
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='设定').click()`)
+  await sleep(400)
+  const statusInputs = await js(`document.querySelectorAll('.side input[placeholder^="当前状态"]').length`)
+  const setAppear = await js(`document.querySelectorAll('.side .fs-appear .ol-chip').length`)
+  const cardsBefore = await js(`document.querySelectorAll('.side .card').length`)
+  await js(`(() => {
+    const inp = document.querySelector('.side .side-scroll input.field')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(inp, 'zzz不存在关键词')
+    inp.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  await sleep(400)
+  const cardsFiltered = await js(`document.querySelectorAll('.side .card').length`)
+  console.log('E2E settings P1 -> cast chips:', castChips, '| status inputs:', statusInputs,
+    '| setting appear chips:', setAppear, '| filter cards:', cardsBefore, '->', cardsFiltered)
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()
