@@ -363,6 +363,52 @@ export function parseSingleText(rawText: string, fallbackTitle: string): Project
   return { book, volumes, chaptersMeta, chapterContents: contents, characters: [], settings: [], foreshadows: [] }
 }
 
+export function exportSettingsMd(state: AppState, bookId: ID): string {
+  const book = state.books.find((b) => b.id === bookId)!
+  const chars = state.characters.filter((c) => c.bookId === bookId)
+  const sets = state.settings.filter((s) => s.bookId === bookId)
+  const out: string[] = [`# ${book.title} · 设定集`, '', '## 角色', '']
+  for (const c of chars) {
+    out.push(`### ${c.name}${c.role ? `（${c.role}）` : ''}`)
+    if (c.aliases?.length) out.push(`- 别名：${c.aliases.join('、')}`)
+    if (c.status) out.push(`- 状态：${c.status}`)
+    const fields: [keyof Character, string][] = [
+      ['appearance', '外貌'], ['personality', '性格'], ['background', '背景'],
+      ['motivation', '动机'], ['ability', '能力'],
+    ]
+    for (const [k, label] of fields) {
+      const v = c[k]
+      if (typeof v === 'string' && v.trim()) out.push(`- ${label}：${v}`)
+    }
+    if (c.desc) out.push(`- 备注：${c.desc}`)
+    out.push('')
+  }
+  out.push('## 世界观设定', '')
+  for (const s of sets) {
+    out.push(`### [${s.category}] ${s.name}${s.status ? `（${s.status}）` : ''}`)
+    if (s.desc) out.push(s.desc, '')
+  }
+  return out.join('\n')
+}
+
+export function exportForeshadowMd(state: AppState, bookId: ID): string {
+  const book = state.books.find((b) => b.id === bookId)!
+  const fss = state.foreshadows.filter((f) => f.bookId === bookId)
+  const chs = state.chapters.filter((c) => c.bookId === bookId)
+  const out: string[] = [`# ${book.title} · 伏笔表`, '']
+  for (const f of fss) {
+    const plant = chs.filter((c) => c.foreshadowIds.includes(f.id)).map((c) => c.title)
+    const pay = chs.filter((c) => c.foreshadowPayoffs.includes(f.id)).map((c) => c.title)
+    out.push(`## ${f.title}`)
+    out.push(`- 状态：${f.status}　重要度：${f.priority ?? 'sub'}`)
+    out.push(`- 埋设：${plant.join('、') || '未挂'}`)
+    out.push(`- 回收：${pay.join('、') || '未收'}`)
+    if (f.detail) out.push(`- 内容：${f.detail}`)
+    out.push('')
+  }
+  return out.join('\n')
+}
+
 export function projectWordCount(p: ProjectData): number {
   return Object.values(p.chapterContents).reduce((s, t) => s + countWords(t), 0)
 }

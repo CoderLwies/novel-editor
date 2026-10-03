@@ -461,6 +461,32 @@ async function main() {
   await shot('18-character-card.png')
   console.log('E2E char P0 -> status:', charStatus, '| aliases:', JSON.stringify(aliases), '| detail fields:', fieldCount)
 
+  // 10) 块2：角色关系/出场统计、伏笔重要度+关联角色、设定集/伏笔表导出
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='角色').click()`)
+  await sleep(400)
+  const statLine = await js(`[...document.querySelectorAll('.side .card')][0]?.textContent.includes('出场 ')`)
+  await js(`[...document.querySelectorAll('.side .card .btn')].find(b=>b.textContent.trim().startsWith('详细设定'))?.click()`)
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.side .card .btn')].find(b=>b.textContent.includes('添加关系'))?.click()`)
+  await sleep(400)
+  const relCount = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).characters[0]?.relations?.length`)
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='伏笔').click()`)
+  await sleep(400)
+  const prioSelects = await js(`[...document.querySelectorAll('.side select.field')].filter(s=>[...s.options].some(o=>o.value==='main')).length`)
+  const relChips = await js(`[...document.querySelectorAll('.side .fs-appear .ol-chip')].length`)
+  await js(`document.querySelector('.filemenu > button')?.click()`)
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.menu-item')].find(b=>b.textContent.includes('导出设定集'))?.click()`)
+  await sleep(900)
+  const setMd = fs.existsSync(stubSavePath) ? fs.readFileSync(stubSavePath, 'utf8') : ''
+  await js(`document.querySelector('.filemenu > button')?.click()`)
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.menu-item')].find(b=>b.textContent.includes('导出伏笔表'))?.click()`)
+  await sleep(900)
+  const fsMd = fs.existsSync(stubSavePath) ? fs.readFileSync(stubSavePath, 'utf8') : ''
+  console.log('E2E block2 -> stat line:', statLine, '| relations:', relCount, '| priority selects:', prioSelects,
+    '| char chips in fs:', relChips, '| settings md:', setMd.includes('设定集'), '| foreshadow md:', fsMd.includes('伏笔表'))
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()

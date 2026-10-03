@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Plus, Trash2, User, Map as MapIcon, ScrollText, Swords, Package, Users, BookMarked, ChevronDown, ChevronRight, Wand2, GitBranch, RefreshCcw, ShieldCheck, Loader2 } from 'lucide-react'
 import { useStore, actions, volumesOf, chaptersOf } from '../store'
-import type { Book, Chapter, Character, CharacterState, SettingCategory, ForeshadowStatus, OutlineStatus, ID } from '../types'
+import type { Book, Chapter, Character, CharacterState, SettingCategory, ForeshadowStatus, ForeshadowPriority, OutlineStatus, ID } from '../types'
 import { countWords, formatNumber } from '../utils'
 import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, type GenWriteback } from '../ai'
 import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal } from './AiModals'
@@ -393,10 +393,13 @@ const CHAR_FIELDS: { key: 'appearance' | 'personality' | 'background' | 'motivat
 
 function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
   const [open, setOpen] = useState(false)
+  const state = useStore()
+  const chars = state.characters.filter((x) => x.bookId === c.bookId)
+  const relatedFs = state.foreshadows.filter((f) => f.bookId === c.bookId && (f.characterIds ?? []).includes(c.id))
   const filled = CHAR_FIELDS.filter((f) => (c[f.key] ?? '').trim()).length
   const st = CHAR_STATE[c.status ?? 'alive']
   return (
-    <div className="card">
+    <div className="card" id={`char-${c.id}`}>
       <button className="card-del" onClick={() => actions.deleteCharacter(c.id)}><Trash2 size={14} /></button>
       <div className="card-title">
         <User size={14} style={{ color: 'var(--accent)' }} />
@@ -432,6 +435,37 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
           ))}
         </div>
       )}
+      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-faint)' }}>
+        出场 {appear.length} 章{appear.length > 0 && ` · 最近《${appear[appear.length - 1].title}》`}
+      </div>
+      {(c.relations ?? []).length > 0 && (
+        <div className="fs-appear" style={{ marginTop: 6 }}>
+          <span className="fs-link-label">关系</span>
+          {(c.relations ?? []).map((r, i) => {
+            const t = chars.find((x) => x.id === r.targetId)
+            return (
+              <button
+                key={i}
+                className="ol-chip sel"
+                title="跳转到该角色卡"
+                onClick={() =>
+                  document.getElementById(`char-${r.targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
+              >
+                {r.relation || '关系'}·{t?.name ?? '未知'}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {relatedFs.length > 0 && (
+        <div className="fs-appear" style={{ marginTop: 6 }}>
+          <span className="fs-link-label">伏笔</span>
+          {relatedFs.map((f) => (
+            <span key={f.id} className="ol-chip" title={f.title}>{f.title}</span>
+          ))}
+        </div>
+      )}
       <button className="btn btn-ghost" style={{ marginTop: 8, fontSize: 11, padding: '3px 8px' }}
         onClick={() => setOpen((v) => !v)}>
         {open ? '收起详细设定' : `详细设定${filled > 0 ? `（已填 ${filled}）` : ''}`}
@@ -443,6 +477,44 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
             onChange={(e) => actions.updateCharacter(c.id, { [f.key]: e.target.value } as Partial<Character>)} />
         </div>
       ))}
+      {open && (
+        <div className="ol-field">
+          <div className="lbl">关系</div>
+          {(c.relations ?? []).map((r, i) => (
+            <div className="rel-row" key={i}>
+              <select
+                className="field"
+                value={r.targetId}
+                onChange={(e) => actions.updateCharacter(c.id, {
+                  relations: (c.relations ?? []).map((x, j) => (j === i ? { ...x, targetId: e.target.value } : x)),
+                })}
+              >
+                {chars.filter((x) => x.id !== c.id).map((x) => (
+                  <option key={x.id} value={x.id}>{x.name}</option>
+                ))}
+              </select>
+              <input
+                className="field"
+                value={r.relation}
+                placeholder="师徒/仇敌…"
+                onChange={(e) => actions.updateCharacter(c.id, {
+                  relations: (c.relations ?? []).map((x, j) => (j === i ? { ...x, relation: e.target.value } : x)),
+                })}
+              />
+              <button className="icon-btn" title="删除关系"
+                onClick={() => actions.updateCharacter(c.id, { relations: (c.relations ?? []).filter((_, j) => j !== i) })}>
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+            onClick={() => actions.updateCharacter(c.id, {
+              relations: [...(c.relations ?? []), { targetId: chars.find((x) => x.id !== c.id)?.id ?? '', relation: '' }],
+            })}>
+            + 添加关系
+          </button>
+        </div>
+      )}
       <div className="ol-field" style={{ marginTop: 8 }}>
         <div className="lbl">综合备注</div>
         <textarea className="field ol-f" rows={2} value={c.desc} placeholder="其它备注…"
@@ -542,6 +614,7 @@ function ForeshadowTab({ bookId }: { bookId: string }) {
     .filter((c) => c.bookId === bookId)
     .sort((a, b) => (volOrder.get(a.volumeId) ?? 0) - (volOrder.get(b.volumeId) ?? 0) || a.order - b.order)
   const idx = new Map(chapters.map((c, i) => [c.id, i] as [ID, number]))
+  const chars = state.characters.filter((c) => c.bookId === bookId)
 
   const timeline = chapters
     .map((c) => ({
@@ -596,6 +669,13 @@ function ForeshadowTab({ bookId }: { bookId: string }) {
                 <option value="progressing">推进中</option>
                 <option value="resolved">已回收</option>
               </select>
+              <select className="field" style={{ width: 'auto', padding: '2px 6px', fontSize: 11, marginLeft: 6 }}
+                value={f.priority ?? 'sub'}
+                onChange={(e) => actions.updateForeshadow(f.id, { priority: e.target.value as ForeshadowPriority })}>
+                <option value="main">主线</option>
+                <option value="sub">支线</option>
+                <option value="detail">细节</option>
+              </select>
               <span className={`fs-status ${meta.cls}`} style={{ marginLeft: 8 }}>{meta.label}</span>
               {span !== null &&
                 (span >= 0 ? (
@@ -627,6 +707,22 @@ function ForeshadowTab({ bookId }: { bookId: string }) {
               ) : (
                 <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>未收</span>
               )}
+            </div>
+            <div className="fs-appear" style={{ marginTop: 6 }}>
+              <span className="fs-link-label">角色</span>
+              {chars.map((ch) => (
+                <button
+                  key={ch.id}
+                  className={`ol-chip ${(f.characterIds ?? []).includes(ch.id) ? 'sel' : ''}`}
+                  onClick={() => actions.updateForeshadow(f.id, {
+                    characterIds: (f.characterIds ?? []).includes(ch.id)
+                      ? (f.characterIds ?? []).filter((x) => x !== ch.id)
+                      : [...(f.characterIds ?? []), ch.id],
+                  })}
+                >
+                  {ch.name}
+                </button>
+              ))}
             </div>
             {broken && (
               <div className="fs-warn">标记为已回收，但没有任何回收章挂接——检查是否漏写回收章。</div>

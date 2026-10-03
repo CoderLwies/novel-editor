@@ -175,6 +175,20 @@ export function consistencyCheck(state: AppState, bookId: ID): CheckIssue[] {
     }
   }
 
+  const lastCh = sorted[sorted.length - 1]
+  if (lastCh) {
+    for (const id of lastCh.cast) {
+      const ch = charById.get(id)
+      if (ch?.status === 'dead') {
+        issues.push({
+          level: 'warn',
+          chapterId: lastCh.id,
+          text: `角色"${ch.name}"已标记死亡，但最新章《${lastCh.title}》仍挂接其出场`,
+        })
+      }
+    }
+  }
+
   for (const v of state.volumes.filter((v) => v.bookId === bookId)) {
     if (!chs.some((c) => c.volumeId === v.id)) {
       issues.push({ level: 'info', text: `《${v.title}》还是空卷，没有章节` })

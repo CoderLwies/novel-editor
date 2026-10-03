@@ -82,6 +82,8 @@ export interface Character {
   background?: string
   motivation?: string
   ability?: string
+  /** 角色关系：目标角色 + 关系称谓 */
+  relations?: { targetId: ID; relation: string }[]
 }
 
 export interface SettingItem {
@@ -94,12 +96,18 @@ export interface SettingItem {
   status?: string
 }
 
+export type ForeshadowPriority = 'main' | 'sub' | 'detail'
+
 export interface Foreshadow {
   id: ID
   bookId: ID
   title: string
   detail: string
   status: ForeshadowStatus
+  /** 重要度：主线/支线/细节 */
+  priority?: ForeshadowPriority
+  /** 关联角色 id */
+  characterIds?: ID[]
 }
 
 /** date(YYYY-MM-DD) -> 当日新增字数 */

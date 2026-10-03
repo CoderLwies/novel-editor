@@ -3,7 +3,7 @@ import { FolderDown, FolderSync, HardDriveDownload, FileDown, FileText, ListTree
 import { useStore, actions } from '../store'
 import type { Book } from '../types'
 import { pickDirectory, saveTextFile, supportsProjectFolders } from '../fs'
-import { writeProjectToDir, exportBookTxt, exportBookMd, exportOutlineMd, sanitizeFilename } from '../project'
+import { writeProjectToDir, exportBookTxt, exportBookMd, exportOutlineMd, exportSettingsMd, exportForeshadowMd, sanitizeFilename } from '../project'
 
 export default function FileMenu({ book }: { book: Book }) {
   const state = useStore()
@@ -94,6 +94,22 @@ export default function FileMenu({ book }: { book: Book }) {
       if (r) setToast(r.downloaded ? `已下载：${r.path}` : `已导出：${r.path}`)
     })
 
+  const exportSettings = () =>
+    run(async () => {
+      const r = await saveTextFile(`${sanitizeFilename(book.title)}-设定集.md`, exportSettingsMd(state, book.id), [
+        { name: 'Markdown', extensions: ['md'] },
+      ])
+      if (r) setToast(r.downloaded ? `已下载：${r.path}` : `已导出：${r.path}`)
+    })
+
+  const exportForeshadow = () =>
+    run(async () => {
+      const r = await saveTextFile(`${sanitizeFilename(book.title)}-伏笔表.md`, exportForeshadowMd(state, book.id), [
+        { name: 'Markdown', extensions: ['md'] },
+      ])
+      if (r) setToast(r.downloaded ? `已下载：${r.path}` : `已导出：${r.path}`)
+    })
+
   return (
     <div className="filemenu" ref={rootRef}>
       <button className={`icon-btn ${open ? 'active' : ''}`} onClick={() => setOpen((v) => !v)} disabled={busy}>
@@ -144,6 +160,12 @@ export default function FileMenu({ book }: { book: Book }) {
           </button>
           <button className="menu-item" onClick={exportOutline}>
             <ListTree size={15} /> 导出全书大纲 Markdown
+          </button>
+          <button className="menu-item" onClick={exportSettings}>
+            <ListTree size={15} /> 导出设定集 Markdown
+          </button>
+          <button className="menu-item" onClick={exportForeshadow}>
+            <ListTree size={15} /> 导出伏笔表 Markdown
           </button>
         </div>
       )}
