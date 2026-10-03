@@ -56,8 +56,10 @@ export interface Chapter {
   pov: string
   /** 章纲：出场角色 id */
   cast: ID[]
-  /** 章纲：本章埋/收的伏笔 id */
+  /** 章纲：本章埋设的伏笔 id */
   foreshadowIds: ID[]
+  /** 章纲：本章回收的伏笔 id */
+  foreshadowPayoffs: ID[]
   /** 章纲进度 */
   outlineStatus: OutlineStatus
   createdAt: number
@@ -86,7 +88,6 @@ export interface Foreshadow {
   title: string
   detail: string
   status: ForeshadowStatus
-  chapterId?: ID
 }
 
 /** date(YYYY-MM-DD) -> 当日新增字数 */

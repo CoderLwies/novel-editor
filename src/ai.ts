@@ -143,9 +143,30 @@ export function consistencyCheck(state: AppState, bookId: ID): CheckIssue[] {
     }
   }
 
-  for (const f of state.foreshadows.filter((f) => f.bookId === bookId)) {
-    if (f.status === 'resolved' && !chs.some((c) => c.foreshadowIds.includes(f.id))) {
-      issues.push({ level: 'warn', text: `伏笔"${f.title}"标记为已回收，但没有章节挂接它` })
+  const volOrder = new Map(state.volumes.filter((v) => v.bookId === bookId).map((v, i) => [v.id, i]))
+  const sorted = [...chs].sort(
+    (a, b) => (volOrder.get(a.volumeId) ?? 0) - (volOrder.get(b.volumeId) ?? 0) || a.order - b.order,
+  )
+  const lastWritten = sorted.reduce((m, c, i) => (countWords(c.content) > 0 ? i : m), -1)
+  for (const f of state.foreshadows.filter((x) => x.bookId === bookId)) {
+    const pi = sorted.findIndex((c) => c.foreshadowIds.includes(f.id))
+    const yi = sorted.findIndex((c) => c.foreshadowPayoffs.includes(f.id))
+    const plant = pi === -1 ? undefined : pi
+    const pay = yi === -1 ? undefined : yi
+    if (plant === undefined && pay === undefined) {
+      issues.push({ level: 'info', text: `伏笔"${f.title}"登记后还没有挂到任何章节` })
+    }
+    if (plant !== undefined && pay === undefined && lastWritten - plant > 10) {
+      issues.push({ level: 'warn', text: `伏笔"${f.title}"埋设后已跨 ${lastWritten - plant} 章仍未回收，注意别忘收` })
+    }
+    if (plant !== undefined && pay !== undefined && pay < plant) {
+      issues.push({ level: 'warn', chapterId: sorted[pay].id, text: `伏笔"${f.title}"的回收章早于埋设章，顺序可能有误` })
+    }
+    if (f.status === 'resolved' && pay === undefined) {
+      issues.push({ level: 'warn', text: `伏笔"${f.title}"标记为已回收，但没有回收章挂接它` })
+    }
+    if (f.status !== 'resolved' && pay !== undefined) {
+      issues.push({ level: 'info', text: `伏笔"${f.title}"已有回收章挂接，但状态未同步为已回收` })
     }
   }
 

@@ -394,6 +394,28 @@ async function main() {
   await sleep(300)
   console.log('E2E focus mode ->', focused)
 
+  // 7) P0 伏笔：三态 chips 循环、埋收链路、时间线
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='大纲').click()`)
+  await sleep(400)
+  await js(`(() => {
+    const w = document.querySelector('.ol-ch.cur') || document.querySelector('.ol-ch')
+    if (w && !w.classList.contains('open')) w.querySelector('.ol-ch-head').click()
+  })()`)
+  await sleep(400)
+  const chipLabel = () => js(`[...document.querySelectorAll('.ol-chip')].find(b=>b.textContent.includes('父亲的失踪'))?.textContent ?? ''`)
+  const l1 = (await chipLabel()).trim()
+  await js(`[...document.querySelectorAll('.ol-chip')].find(b=>b.textContent.includes('父亲的失踪'))?.click()`)
+  await sleep(400)
+  const l2 = (await chipLabel()).trim()
+  const autoStatus = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).foreshadows.find(f=>f.title==='父亲的失踪')?.status`)
+  console.log('E2E fs chip cycle -> label changed:', l1 !== l2, '|', l1, '->', l2, '| status now:', autoStatus)
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='伏笔').click()`)
+  await sleep(400)
+  const tlRows = await js(`document.querySelectorAll('.fs-tl-row').length`)
+  const linkShown = await js(`document.querySelectorAll('.fs-link-label').length >= 2`)
+  await shot('17-foreshadow-timeline.png')
+  console.log('E2E fs timeline -> rows:', tlRows, '| plant/pay links shown:', linkShown)
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()

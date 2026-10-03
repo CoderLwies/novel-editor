@@ -33,6 +33,7 @@ export interface ChapterMeta {
   pov?: string
   cast?: ID[]
   foreshadowIds?: ID[]
+  foreshadowPayoffs?: ID[]
   outlineStatus?: OutlineStatus
 }
 
@@ -99,6 +100,7 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
       pov: c.pov,
       cast: c.cast,
       foreshadowIds: c.foreshadowIds,
+      foreshadowPayoffs: c.foreshadowPayoffs,
       outlineStatus: c.outlineStatus,
     })
     await fsLow.writeFile(
@@ -115,6 +117,7 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
         pov: c.pov,
         cast: c.cast,
         foreshadowIds: c.foreshadowIds,
+        foreshadowPayoffs: c.foreshadowPayoffs,
       }) + c.content,
     )
   }
@@ -167,6 +170,7 @@ export async function readProjectFromDir(dir: string): Promise<ProjectData> {
       pov: data.pov ?? meta.pov,
       cast: data.cast ?? meta.cast,
       foreshadowIds: data.foreshadowIds ?? meta.foreshadowIds,
+      foreshadowPayoffs: data.foreshadowPayoffs ?? meta.foreshadowPayoffs ?? [],
     })
   }
 
@@ -259,8 +263,15 @@ export function exportOutlineMd(state: AppState, bookId: ID): string {
       if (c.turning) out.push(`- **转折**：${c.turning}`)
       if (c.hook) out.push(`- **钩子**：${c.hook}`)
       if (c.cast.length > 0) out.push(`- **登场**：${c.cast.map((id) => chars.get(id) ?? '未知角色').join('、')}`)
-      if (c.foreshadowIds.length > 0) {
-        out.push(`- **伏笔**：${c.foreshadowIds.map((id) => fss.get(id) ?? '未知伏笔').join('、')}`)
+      if (c.foreshadowIds.length > 0 || c.foreshadowPayoffs.length > 0) {
+        const parts: string[] = []
+        if (c.foreshadowIds.length > 0) {
+          parts.push(`埋：${c.foreshadowIds.map((id) => fss.get(id) ?? '未知伏笔').join('、')}`)
+        }
+        if (c.foreshadowPayoffs.length > 0) {
+          parts.push(`收：${c.foreshadowPayoffs.map((id) => fss.get(id) ?? '未知伏笔').join('、')}`)
+        }
+        out.push(`- **伏笔**：${parts.join(' / ')}`)
       }
       out.push('')
     }

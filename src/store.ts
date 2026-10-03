@@ -7,6 +7,7 @@ import type {
   Character,
   SettingItem,
   Foreshadow,
+  ForeshadowStatus,
   ChapterSnapshot,
   AIConfig,
   ID,
@@ -57,14 +58,24 @@ function migrate(raw: AppState): AppState {
       pov: old.pov ?? '',
       cast: old.cast ?? [],
       foreshadowIds: old.foreshadowIds ?? [],
+      foreshadowPayoffs: old.foreshadowPayoffs ?? [],
       outlineStatus: old.outlineStatus ?? (countWords(old.content ?? '') > 0 ? 'written' : 'plan'),
     }
   })
+  // 旧伏笔的 chapterId 为登记章死字段，迁移时剥离
+  const foreshadows = raw.foreshadows.map((f) => ({
+    id: f.id,
+    bookId: f.bookId,
+    title: f.title,
+    detail: f.detail ?? '',
+    status: f.status ?? ('planted' as ForeshadowStatus),
+  }))
   const ai = raw.ai
   return {
     ...raw,
     volumes,
     chapters,
+    foreshadows,
     snapshots: raw.snapshots ?? [],
     ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '' },
     // 模型固定为 deepseek-flash；baseUrl 沿用用户已填值，否则回落到官方端点
@@ -239,6 +250,7 @@ export const actions = {
       pov: '',
       cast: [],
       foreshadowIds: [],
+      foreshadowPayoffs: [],
       outlineStatus: 'plan',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -354,7 +366,6 @@ export const actions = {
       title: data.title || '新伏笔',
       detail: data.detail || '',
       status: data.status || 'planted',
-      chapterId: data.chapterId,
     }
     set((s) => ({ ...s, foreshadows: [...s.foreshadows, f] }))
     return f
@@ -407,6 +418,23 @@ export const actions = {
   },
   setGoalToastDate(d: string) {
     set((s) => ({ ...s, ui: { ...s.ui, lastGoalToastDate: d } }))
+  },
+  syncForeshadowStatus(fsId: ID) {
+    set((s) => {
+      const planted = s.chapters.some((c) => c.foreshadowIds.includes(fsId))
+      const paid = s.chapters.some((c) => c.foreshadowPayoffs.includes(fsId))
+      return {
+        ...s,
+        foreshadows: s.foreshadows.map((f) => {
+          if (f.id !== fsId) return f
+          if (paid && f.status !== 'resolved') return { ...f, status: 'resolved' as ForeshadowStatus }
+          if (!paid && f.status === 'resolved') {
+            return { ...f, status: (planted ? 'progressing' : 'planted') as ForeshadowStatus }
+          }
+          return f
+        }),
+      }
+    })
   },
   setFontSize(fontSize: number) {
     set((s) => ({ ...s, ui: { ...s.ui, fontSize: Math.min(28, Math.max(13, fontSize)) } }))
@@ -461,6 +489,7 @@ export const actions = {
       pov: m.pov ?? '',
       cast: m.cast ?? [],
       foreshadowIds: m.foreshadowIds ?? [],
+      foreshadowPayoffs: m.foreshadowPayoffs ?? [],
       outlineStatus: m.outlineStatus ?? 'plan',
       createdAt: now,
       updatedAt: now,
@@ -471,7 +500,6 @@ export const actions = {
       ...f,
       id: uid('fs'),
       bookId,
-      chapterId: f.chapterId ? chMap.get(f.chapterId) : undefined,
     }))
 
     set((s) => ({

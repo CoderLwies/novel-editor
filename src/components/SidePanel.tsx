@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Trash2, User, Map, ScrollText, Swords, Package, Users, BookMarked, ChevronDown, ChevronRight, Wand2, GitBranch, RefreshCcw, ShieldCheck, Loader2 } from 'lucide-react'
+import { Plus, Trash2, User, Map as MapIcon, ScrollText, Swords, Package, Users, BookMarked, ChevronDown, ChevronRight, Wand2, GitBranch, RefreshCcw, ShieldCheck, Loader2 } from 'lucide-react'
 import { useStore, actions, volumesOf, chaptersOf } from '../store'
 import type { Book, Chapter, SettingCategory, ForeshadowStatus, OutlineStatus, ID } from '../types'
 import { countWords, formatNumber } from '../utils'
@@ -8,8 +8,8 @@ import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal } from './Ai
 
 export type SideTab = 'outline' | 'characters' | 'settings' | 'foreshadow'
 
-const CATEGORY_META: Record<SettingCategory, { label: string; icon: typeof Map }> = {
-  location: { label: '地点', icon: Map },
+const CATEGORY_META: Record<SettingCategory, { label: string; icon: typeof MapIcon }> = {
+  location: { label: '地点', icon: MapIcon },
   item: { label: '物品', icon: Package },
   faction: { label: '势力', icon: Users },
   rule: { label: '规则', icon: BookMarked },
@@ -70,7 +70,7 @@ export default function SidePanel({
         )}
         {tab === 'foreshadow' && (
           <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center' }}
-            onClick={() => actions.createForeshadow(book.id, { title: '新伏笔', chapterId: chapter?.id })}>
+            onClick={() => actions.createForeshadow(book.id, { title: '新伏笔' })}>
             <Plus size={15} /> 登记伏笔
           </button>
         )}
@@ -102,11 +102,12 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
       return next
     })
 
-  const toggleRef = (ch: Chapter, key: 'cast' | 'foreshadowIds', id: ID) => {
+  const toggleRef = (ch: Chapter, key: 'cast' | 'foreshadowIds' | 'foreshadowPayoffs', id: ID) => {
     const list = ch[key]
     actions.updateChapter(ch.id, {
       [key]: list.includes(id) ? list.filter((x) => x !== id) : [...list, id],
     } as Partial<Chapter>)
+    if (key !== 'cast') actions.syncForeshadowStatus(id)
   }
 
   return (
@@ -244,17 +245,37 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
                           )}
                           {fsPool.length > 0 && (
                             <div className="ol-chips-block">
-                              <div className="lbl">本章埋 / 收伏笔</div>
+                              <div className="lbl">本章伏笔（点击切换：未挂 → 埋 → 收）</div>
                               <div className="ol-chips">
-                                {fsPool.map((p) => (
-                                  <button
-                                    key={p.id}
-                                    className={`ol-chip ${c.foreshadowIds.includes(p.id) ? 'sel' : ''}`}
-                                    onClick={() => toggleRef(c, 'foreshadowIds', p.id)}
-                                  >
-                                    {p.title}
-                                  </button>
-                                ))}
+                                {fsPool.map((p) => {
+                                  const planted = c.foreshadowIds.includes(p.id)
+                                  const paid = c.foreshadowPayoffs.includes(p.id)
+                                  const st = paid ? 'payoff' : planted ? 'plant' : 'none'
+                                  return (
+                                    <button
+                                      key={p.id}
+                                      className={`ol-chip ${st !== 'none' ? 'sel' : ''} ${st === 'payoff' ? 'payoff' : ''}`}
+                                      title="点击切换：未挂 → 埋 → 收 → 未挂"
+                                      onClick={() => {
+                                        if (st === 'none') {
+                                          actions.updateChapter(c.id, { foreshadowIds: [...c.foreshadowIds, p.id] })
+                                        } else if (st === 'plant') {
+                                          actions.updateChapter(c.id, {
+                                            foreshadowIds: c.foreshadowIds.filter((x) => x !== p.id),
+                                            foreshadowPayoffs: [...c.foreshadowPayoffs, p.id],
+                                          })
+                                        } else {
+                                          actions.updateChapter(c.id, {
+                                            foreshadowPayoffs: c.foreshadowPayoffs.filter((x) => x !== p.id),
+                                          })
+                                        }
+                                        actions.syncForeshadowStatus(p.id)
+                                      }}
+                                    >
+                                      {st === 'plant' ? '埋 · ' : st === 'payoff' ? '收 · ' : ''}{p.title}
+                                    </button>
+                                  )
+                                })}
                               </div>
                             </div>
                           )}
@@ -419,14 +440,49 @@ function SettingsTab({ bookId }: { bookId: string }) {
 function ForeshadowTab({ bookId }: { bookId: string }) {
   const state = useStore()
   const list = state.foreshadows.filter((c) => c.bookId === bookId)
-  const chapters = state.chapters.filter((c) => c.bookId === bookId)
+  const volumes = volumesOf(state, bookId)
+  const volOrder = new Map(volumes.map((v, i) => [v.id, i] as [ID, number]))
+  const chapters = state.chapters
+    .filter((c) => c.bookId === bookId)
+    .sort((a, b) => (volOrder.get(a.volumeId) ?? 0) - (volOrder.get(b.volumeId) ?? 0) || a.order - b.order)
+  const idx = new Map(chapters.map((c, i) => [c.id, i] as [ID, number]))
+
+  const timeline = chapters
+    .map((c) => ({
+      c,
+      plant: list.filter((f) => c.foreshadowIds.includes(f.id)),
+      pay: list.filter((f) => c.foreshadowPayoffs.includes(f.id)),
+    }))
+    .filter((r) => r.plant.length > 0 || r.pay.length > 0)
+
   return (
     <div className="side-scroll">
+      <div className="side-section-label">埋 / 收时间线</div>
+      {timeline.length === 0 && <Empty text="还没有伏笔挂接，去大纲 tab 给章节挂埋/收" />}
+      {timeline.map((r) => (
+        <div className="fs-tl-row" key={r.c.id}>
+          <span className="fs-tl-ch">{r.c.title}</span>
+          <span className="fs-tl-evts">
+            {r.plant.map((f) => (
+              <span className="fs-evt plant" key={f.id}>埋 {f.title}</span>
+            ))}
+            {r.pay.map((f) => (
+              <span className="fs-evt pay" key={f.id}>收 {f.title}</span>
+            ))}
+          </span>
+        </div>
+      ))}
+
+      <div className="side-section-label" style={{ marginTop: 14 }}>伏笔清单</div>
       {list.length === 0 && <Empty text="还没有伏笔，点击下方登记" />}
       {list.map((f) => {
         const meta = FS_META[f.status]
-        const appearIn = chapters.filter((c) => c.foreshadowIds.includes(f.id))
-        const broken = f.status === 'resolved' && appearIn.length === 0
+        const plantIn = chapters.filter((c) => c.foreshadowIds.includes(f.id))
+        const payIn = chapters.filter((c) => c.foreshadowPayoffs.includes(f.id))
+        const plantIdx = plantIn.length ? idx.get(plantIn[0].id) : undefined
+        const payIdx = payIn.length ? idx.get(payIn[0].id) : undefined
+        const span = plantIdx !== undefined && payIdx !== undefined ? payIdx - plantIdx : null
+        const broken = f.status === 'resolved' && payIn.length === 0
         return (
           <div className="card" key={f.id}>
             <button className="card-del" onClick={() => actions.deleteForeshadow(f.id)}><Trash2 size={14} /></button>
@@ -444,20 +500,39 @@ function ForeshadowTab({ bookId }: { bookId: string }) {
                 <option value="resolved">已回收</option>
               </select>
               <span className={`fs-status ${meta.cls}`} style={{ marginLeft: 8 }}>{meta.label}</span>
+              {span !== null &&
+                (span >= 0 ? (
+                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-faint)' }}>跨 {span} 章</span>
+                ) : (
+                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--warning)' }}>回收早于埋设</span>
+                ))}
             </div>
             <div className="fs-appear">
-              {appearIn.length > 0 ? (
-                appearIn.map((c) => (
-                  <button key={c.id} className="ol-chip sel" onClick={() => actions.selectChapter(c.id)} title="跳转到该章">
+              <span className="fs-link-label">埋</span>
+              {plantIn.length > 0 ? (
+                plantIn.map((c) => (
+                  <button key={c.id} className="ol-chip sel" onClick={() => actions.selectChapter(c.id)} title="跳转到埋设章">
                     {c.title}
                   </button>
                 ))
               ) : (
-                <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>尚未挂到任何章节</span>
+                <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>未挂</span>
+              )}
+            </div>
+            <div className="fs-appear">
+              <span className="fs-link-label pay">收</span>
+              {payIn.length > 0 ? (
+                payIn.map((c) => (
+                  <button key={c.id} className="ol-chip sel payoff" onClick={() => actions.selectChapter(c.id)} title="跳转到回收章">
+                    {c.title}
+                  </button>
+                ))
+              ) : (
+                <span style={{ fontSize: 11.5, color: 'var(--text-faint)' }}>未收</span>
               )}
             </div>
             {broken && (
-              <div className="fs-warn">标记为已回收，但没有任何章节勾选它——检查是否漏写回收章。</div>
+              <div className="fs-warn">标记为已回收，但没有任何回收章挂接——检查是否漏写回收章。</div>
             )}
             <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={3}
               value={f.detail} placeholder="伏笔内容、埋设与回收计划…"

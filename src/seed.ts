@@ -28,6 +28,7 @@ export function createSeedState(): AppState {
       pov: '林尘',
       cast: ['char_1'],
       foreshadowIds: ['fs_1'],
+      foreshadowPayoffs: [],
       outlineStatus: 'written' as const,
       content: `青云镇，林家。
 
@@ -66,6 +67,7 @@ export function createSeedState(): AppState {
       pov: '林尘',
       cast: ['char_1', 'char_2'],
       foreshadowIds: ['fs_2'],
+      foreshadowPayoffs: [],
       outlineStatus: 'written' as const,
       content: `当林尘再次睁开眼时，发现自己身处一座古老的石殿之中。
 
@@ -100,6 +102,7 @@ export function createSeedState(): AppState {
       pov: '林尘',
       cast: ['char_1', 'char_3'],
       foreshadowIds: ['fs_3'],
+      foreshadowPayoffs: ['fs_1'],
       outlineStatus: 'written' as const,
       content: `一月之后，林家年度大比。
 
@@ -140,6 +143,7 @@ export function createSeedState(): AppState {
       pov: '林尘',
       cast: ['char_1'],
       foreshadowIds: ['fs_1', 'fs_2'],
+      foreshadowPayoffs: [],
       outlineStatus: 'plan' as const,
       content: '',
       createdAt: now - day * 1,
@@ -160,6 +164,7 @@ export function createSeedState(): AppState {
       pov: '林尘',
       cast: ['char_1', 'char_4'],
       foreshadowIds: [],
+      foreshadowPayoffs: [],
       outlineStatus: 'plan' as const,
       content: '',
       createdAt: now,
@@ -289,8 +294,7 @@ export function createSeedState(): AppState {
         bookId,
         title: '父亲的失踪',
         detail: '林尘父亲三年前离奇失踪，留下"世界比你想象的大得多"。疑似与更大的势力/秘境有关。',
-        status: 'planted',
-        chapterId: 'ch_1',
+        status: 'resolved',
       },
       {
         id: 'fs_2',
@@ -298,7 +302,6 @@ export function createSeedState(): AppState {
         title: '暗中窥探的眼睛',
         detail: '第二章结尾，冲天金光被暗处之人目睹。这批人身份未明，后续将登门。',
         status: 'progressing',
-        chapterId: 'ch_2',
       },
       {
         id: 'fs_3',
@@ -306,7 +309,6 @@ export function createSeedState(): AppState {
         title: '家主的暧昧态度',
         detail: '家族大比上家主一言不发，似有所知。伏笔：家主可能知道混沌之体的秘密。',
         status: 'planted',
-        chapterId: 'ch_3',
       },
     ],
     dailyLog: {
