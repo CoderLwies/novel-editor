@@ -66,12 +66,22 @@ export interface Chapter {
   updatedAt: number
 }
 
+export type CharacterState = 'alive' | 'dead' | 'missing' | 'retired'
+
 export interface Character {
   id: ID
   bookId: ID
   name: string
   role: string
   desc: string
+  /** 别名/曾用名，正文命中索引一并匹配 */
+  aliases?: string[]
+  status?: CharacterState
+  appearance?: string
+  personality?: string
+  background?: string
+  motivation?: string
+  ability?: string
 }
 
 export interface SettingItem {

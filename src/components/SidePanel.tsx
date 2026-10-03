@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Plus, Trash2, User, Map as MapIcon, ScrollText, Swords, Package, Users, BookMarked, ChevronDown, ChevronRight, Wand2, GitBranch, RefreshCcw, ShieldCheck, Loader2 } from 'lucide-react'
 import { useStore, actions, volumesOf, chaptersOf } from '../store'
-import type { Book, Chapter, SettingCategory, ForeshadowStatus, OutlineStatus, ID } from '../types'
+import type { Book, Chapter, Character, CharacterState, SettingCategory, ForeshadowStatus, OutlineStatus, ID } from '../types'
 import { countWords, formatNumber } from '../utils'
 import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, type GenWriteback } from '../ai'
 import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal } from './AiModals'
@@ -376,46 +376,96 @@ function OlText({
   )
 }
 
+const CHAR_STATE: Record<CharacterState, { label: string; color: string }> = {
+  alive: { label: '存活', color: 'var(--success)' },
+  dead: { label: '死亡', color: '#e5484d' },
+  missing: { label: '失踪', color: 'var(--warning)' },
+  retired: { label: '退场', color: 'var(--text-faint)' },
+}
+
+const CHAR_FIELDS: { key: 'appearance' | 'personality' | 'background' | 'motivation' | 'ability'; label: string }[] = [
+  { key: 'appearance', label: '外貌特征' },
+  { key: 'personality', label: '性格' },
+  { key: 'background', label: '背景身世' },
+  { key: 'motivation', label: '动机目标' },
+  { key: 'ability', label: '能力 / 功法' },
+]
+
+function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
+  const [open, setOpen] = useState(false)
+  const filled = CHAR_FIELDS.filter((f) => (c[f.key] ?? '').trim()).length
+  const st = CHAR_STATE[c.status ?? 'alive']
+  return (
+    <div className="card">
+      <button className="card-del" onClick={() => actions.deleteCharacter(c.id)}><Trash2 size={14} /></button>
+      <div className="card-title">
+        <User size={14} style={{ color: 'var(--accent)' }} />
+        <input className="inline-edit" style={{ fontWeight: 600, fontSize: 13.5 }} value={c.name}
+          onChange={(e) => actions.updateCharacter(c.id, { name: e.target.value })} />
+        <span className="char-state-dot" style={{ background: st.color }} title={st.label} />
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
+        <input className="inline-edit" style={{ fontSize: 11.5, color: 'var(--accent)', flex: 1 }} value={c.role}
+          placeholder="定位（主角/反派…）"
+          onChange={(e) => actions.updateCharacter(c.id, { role: e.target.value })} />
+        <select className="field" style={{ width: 'auto', padding: '2px 6px', fontSize: 11 }}
+          value={c.status ?? 'alive'}
+          onChange={(e) => actions.updateCharacter(c.id, { status: e.target.value as CharacterState })}>
+          {(Object.keys(CHAR_STATE) as CharacterState[]).map((k) => (
+            <option key={k} value={k}>{CHAR_STATE[k].label}</option>
+          ))}
+        </select>
+      </div>
+      <input className="inline-edit" style={{ fontSize: 11.5, marginTop: 4, color: 'var(--text-faint)' }}
+        value={(c.aliases ?? []).join(', ')}
+        placeholder="别名/曾用名（逗号分隔，参与正文命中）"
+        onChange={(e) => actions.updateCharacter(c.id, {
+          aliases: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+        })} />
+      {appear.length > 0 && (
+        <div className="fs-appear" style={{ marginTop: 6 }}>
+          <span className="fs-link-label">出场</span>
+          {appear.map((ch) => (
+            <button key={ch.id} className="ol-chip sel" onClick={() => actions.selectChapter(ch.id)} title="跳转到该章">
+              {ch.title}
+            </button>
+          ))}
+        </div>
+      )}
+      <button className="btn btn-ghost" style={{ marginTop: 8, fontSize: 11, padding: '3px 8px' }}
+        onClick={() => setOpen((v) => !v)}>
+        {open ? '收起详细设定' : `详细设定${filled > 0 ? `（已填 ${filled}）` : ''}`}
+      </button>
+      {open && CHAR_FIELDS.map((f) => (
+        <div className="ol-field" key={f.key}>
+          <div className="lbl">{f.label}</div>
+          <textarea className="field ol-f" rows={2} value={c[f.key] ?? ''} placeholder={`${f.label}…`}
+            onChange={(e) => actions.updateCharacter(c.id, { [f.key]: e.target.value } as Partial<Character>)} />
+        </div>
+      ))}
+      <div className="ol-field" style={{ marginTop: 8 }}>
+        <div className="lbl">综合备注</div>
+        <textarea className="field ol-f" rows={2} value={c.desc} placeholder="其它备注…"
+          onChange={(e) => actions.updateCharacter(c.id, { desc: e.target.value })} />
+      </div>
+    </div>
+  )
+}
+
 function CharactersTab({ bookId }: { bookId: string }) {
   const state = useStore()
   const [q, setQ] = useState('')
   const all = state.characters.filter((c) => c.bookId === bookId)
   const kw = q.trim()
-  const list = kw ? all.filter((c) => `${c.name}${c.role}${c.desc}`.includes(kw)) : all
+  const list = kw ? all.filter((c) => `${c.name}${c.role}${c.desc}${(c.aliases ?? []).join('')}`.includes(kw)) : all
   const chapters = state.chapters.filter((c) => c.bookId === bookId)
   return (
     <div className="side-scroll">
-      <FilterBox value={q} onChange={setQ} placeholder="搜索角色名 / 定位 / 设定…" />
+      <FilterBox value={q} onChange={setQ} placeholder="搜索角色名 / 别名 / 定位…" />
       {list.length === 0 && <Empty text={kw ? '没有匹配的角色' : '还没有角色，点击下方新增'} />}
-      {list.map((c) => {
-        const appear = chapters.filter((ch) => ch.cast.includes(c.id))
-        return (
-          <div className="card" key={c.id}>
-            <button className="card-del" onClick={() => actions.deleteCharacter(c.id)}><Trash2 size={14} /></button>
-            <div className="card-title">
-              <User size={14} style={{ color: 'var(--accent)' }} />
-              <input className="inline-edit" style={{ fontWeight: 600, fontSize: 13.5 }} value={c.name}
-                onChange={(e) => actions.updateCharacter(c.id, { name: e.target.value })} />
-            </div>
-            <input className="inline-edit" style={{ fontSize: 11.5, color: 'var(--accent)', marginTop: 4 }} value={c.role}
-              placeholder="定位（主角/反派…）"
-              onChange={(e) => actions.updateCharacter(c.id, { role: e.target.value })} />
-            {appear.length > 0 && (
-              <div className="fs-appear" style={{ marginTop: 6 }}>
-                <span className="fs-link-label">出场</span>
-                {appear.map((ch) => (
-                  <button key={ch.id} className="ol-chip sel" onClick={() => actions.selectChapter(ch.id)} title="跳转到该章">
-                    {ch.title}
-                  </button>
-                ))}
-              </div>
-            )}
-            <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={3}
-              value={c.desc} placeholder="角色设定、性格、动机…"
-              onChange={(e) => actions.updateCharacter(c.id, { desc: e.target.value })} />
-          </div>
-        )
-      })}
+      {list.map((c) => (
+        <CharacterCard key={c.id} c={c} appear={chapters.filter((ch) => ch.cast.includes(c.id))} />
+      ))}
     </div>
   )
 }

@@ -111,9 +111,14 @@ export function writebackPrompt(book: Book, ch: Chapter): string {
   ].join('\n')
 }
 
-/** 本地事实快照：正文命中角色名即挂到章纲出场角色 */
+/** 角色名 + 别名，正文命中索引一并匹配 */
+export function charNames(c: Character): string[] {
+  return [c.name, ...(c.aliases ?? [])].filter((n) => n && n.trim())
+}
+
+/** 本地事实快照：正文命中角色名或别名即挂到章纲出场角色 */
 export function snapshotCast(content: string, chars: Character[], current: ID[]): ID[] {
-  const hit = chars.filter((c) => c.name && content.includes(c.name)).map((c) => c.id)
+  const hit = chars.filter((c) => charNames(c).some((n) => content.includes(n))).map((c) => c.id)
   return [...new Set([...current, ...hit])]
 }
 
@@ -126,7 +131,7 @@ export interface CheckIssue {
 export function consistencyCheck(state: AppState, bookId: ID): CheckIssue[] {
   const issues: CheckIssue[] = []
   const chs = state.chapters.filter((c) => c.bookId === bookId)
-  const charName = new Map(state.characters.filter((c) => c.bookId === bookId).map((c) => [c.id, c.name]))
+  const charById = new Map(state.characters.filter((c) => c.bookId === bookId).map((c) => [c.id, c]))
 
   for (const c of chs) {
     const words = countWords(c.content)
@@ -135,9 +140,9 @@ export function consistencyCheck(state: AppState, bookId: ID): CheckIssue[] {
     }
     if (words > 0) {
       for (const id of c.cast) {
-        const name = charName.get(id)
-        if (name && !c.content.includes(name)) {
-          issues.push({ level: 'info', chapterId: c.id, text: `《${c.title}》挂了角色"${name}"但正文未出现该名字` })
+        const ch = charById.get(id)
+        if (ch && !charNames(ch).some((n) => c.content.includes(n))) {
+          issues.push({ level: 'info', chapterId: c.id, text: `《${c.title}》挂了角色"${ch.name}"但正文未出现该名字或别名` })
         }
       }
     }

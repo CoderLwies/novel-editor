@@ -436,6 +436,31 @@ async function main() {
   console.log('E2E settings P1 -> cast chips:', castChips, '| status inputs:', statusInputs,
     '| setting appear chips:', setAppear, '| filter cards:', cardsBefore, '->', cardsFiltered)
 
+  // 9) P0 角色卡：状态 / 别名 / 折叠详细字段
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='角色').click()`)
+  await sleep(400)
+  await js(`(() => {
+    const sel = document.querySelector('.side .card select.field')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
+    setter.call(sel, 'dead')
+    sel.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+  await sleep(400)
+  const charStatus = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).characters[0]?.status`)
+  await js(`(() => {
+    const inp = [...document.querySelectorAll('.side .card input.inline-edit')].find(i=>(i.placeholder||'').includes('别名'))
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(inp, '林少爷, 少主')
+    inp.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  await sleep(400)
+  const aliases = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).characters[0]?.aliases`)
+  await js(`[...document.querySelectorAll('.side .card .btn')].find(b=>b.textContent.includes('详细设定'))?.click()`)
+  await sleep(300)
+  const fieldCount = await js(`document.querySelectorAll('.side .card .ol-field textarea').length`)
+  await shot('18-character-card.png')
+  console.log('E2E char P0 -> status:', charStatus, '| aliases:', JSON.stringify(aliases), '| detail fields:', fieldCount)
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()

@@ -300,6 +300,12 @@ label.lbl {
 .fs-link-label.pay {
   color: var(--success);
 }
+.char-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
 
 .brand-logo {
   width: 38px;
