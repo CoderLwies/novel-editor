@@ -320,7 +320,10 @@ export function createSeedState(): AppState {
       fontSize: 17,
       lastBookId: null,
       lastChapterId: 'ch_3',
+      jump: null,
+      lastGoalToastDate: '',
     },
     ai: { ...DEFAULT_AI_CONFIG },
+    snapshots: [],
   }
 }

@@ -7,6 +7,7 @@ import type {
   Character,
   SettingItem,
   Foreshadow,
+  ChapterSnapshot,
   AIConfig,
   ID,
 } from './types'
@@ -64,6 +65,8 @@ function migrate(raw: AppState): AppState {
     ...raw,
     volumes,
     chapters,
+    snapshots: raw.snapshots ?? [],
+    ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '' },
     // 模型固定为 deepseek-flash；baseUrl 沿用用户已填值，否则回落到官方端点
     ai: {
       baseUrl: ai?.baseUrl?.trim() ? ai.baseUrl : DEFAULT_AI_BASE_URL,
@@ -75,6 +78,14 @@ function migrate(raw: AppState): AppState {
 
 let state: AppState = load()
 const listeners = new Set<() => void>()
+
+/** 每章快照上限 10 个，超出丢弃最旧 */
+function pushCapped(list: ChapterSnapshot[], snap: ChapterSnapshot, chapterId: ID): ChapterSnapshot[] {
+  const mine = list.filter((x) => x.chapterId === chapterId)
+  const keep = mine.length >= 10 ? mine.slice(mine.length - 9) : mine
+  const others = list.filter((x) => x.chapterId !== chapterId)
+  return [...others, ...keep, snap]
+}
 
 function persist() {
   try {
@@ -364,6 +375,38 @@ export const actions = {
   },
   setAiConfig(patch: Partial<AIConfig>) {
     set((s) => ({ ...s, ai: { ...s.ai, ...patch, model: AI_MODEL } }))
+  },
+  saveSnapshot(chapterId: ID) {
+    set((s) => {
+      const ch = s.chapters.find((c) => c.id === chapterId)
+      if (!ch) return s
+      const snap = { id: uid(), chapterId, at: Date.now(), content: ch.content }
+      return { ...s, snapshots: pushCapped(s.snapshots, snap, chapterId) }
+    })
+  },
+  restoreSnapshot(snapshotId: ID) {
+    set((s) => {
+      const snap = s.snapshots.find((x) => x.id === snapshotId)
+      const ch = snap && s.chapters.find((c) => c.id === snap.chapterId)
+      if (!snap || !ch) return s
+      const backup = { id: uid(), chapterId: ch.id, at: Date.now(), content: ch.content }
+      return {
+        ...s,
+        snapshots: pushCapped(s.snapshots, backup, ch.id),
+        chapters: s.chapters.map((c) =>
+          c.id === ch.id ? { ...c, content: snap.content, updatedAt: Date.now() } : c,
+        ),
+      }
+    })
+  },
+  requestJump(chapterId: ID, index: number, length: number) {
+    set((s) => ({
+      ...s,
+      ui: { ...s.ui, jump: { chapterId, index, length, nonce: (s.ui.jump?.nonce ?? 0) + 1 } },
+    }))
+  },
+  setGoalToastDate(d: string) {
+    set((s) => ({ ...s, ui: { ...s.ui, lastGoalToastDate: d } }))
   },
   setFontSize(fontSize: number) {
     set((s) => ({ ...s, ui: { ...s.ui, fontSize: Math.min(28, Math.max(13, fontSize)) } }))

@@ -1,12 +1,13 @@
 import { useMemo, useState, useEffect } from 'react'
 import {
   ChevronLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
-  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles,
+  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus,
 } from 'lucide-react'
 import { useStore, actions, volumesOf } from '../store'
 import type { Book, Chapter } from '../types'
 import { isElectron } from '../fs'
 import { writeProjectToDir } from '../project'
+import { todayKey, formatNumber } from '../utils'
 import ChapterTree from './ChapterTree'
 import Editor from './Editor'
 import OutlineView from './OutlineView'
@@ -14,6 +15,7 @@ import SidePanel, { type SideTab } from './SidePanel'
 import StatsBar from './StatsBar'
 import FileMenu from './FileMenu'
 import { AiSettingsModal } from './AiModals'
+import SearchModal from './SearchModal'
 
 export default function Workspace({ book }: { book: Book }) {
   const state = useStore()
@@ -22,6 +24,10 @@ export default function Workspace({ book }: { book: Book }) {
   const [showSide, setShowSide] = useState(true)
   const [mode, setMode] = useState<'write' | 'outline'>('write')
   const [showAi, setShowAi] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+  const [focusMode, setFocusMode] = useState(false)
+  const [diskSync, setDiskSync] = useState<'idle' | 'syncing' | 'synced'>('idle')
+  const [toast, setToast] = useState<string | null>(null)
 
   const volumes = useMemo(() => volumesOf(state, book.id), [state, book.id])
 
@@ -48,17 +54,31 @@ export default function Workspace({ book }: { book: Book }) {
   const theme = state.ui.theme
   const fontSize = state.ui.fontSize
 
-  // 绑定目录后，内容变更防抖自动落盘
+  // 绑定目录后，内容变更防抖自动落盘，并给出同步状态指示
   useEffect(() => {
     if (!book.projectPath || !isElectron) return
+    setDiskSync('syncing')
     const t = setTimeout(() => {
-      writeProjectToDir(book.projectPath as string, state, book.id).catch(() => {})
+      writeProjectToDir(book.projectPath as string, state, book.id)
+        .then(() => setDiskSync('synced'))
+        .catch(() => setDiskSync('idle'))
     }, 900)
     return () => clearTimeout(t)
   }, [state, book.id, book.projectPath])
 
+  // 当日码字达成日更目标时提醒一次
+  const today = todayKey(new Date())
+  const todayWords = state.dailyLog[today] ?? 0
+  useEffect(() => {
+    if (todayWords < book.dailyGoal || state.ui.lastGoalToastDate === today) return
+    actions.setGoalToastDate(today)
+    setToast(`今日已写 ${formatNumber(todayWords)} 字，达成日更目标 ${formatNumber(book.dailyGoal)} 字`)
+    const t = setTimeout(() => setToast(null), 5000)
+    return () => clearTimeout(t)
+  }, [todayWords, book.dailyGoal, today, state.ui.lastGoalToastDate])
+
   return (
-    <div className="workspace">
+    <div className={`workspace ${focusMode ? 'focus' : ''}`}>
       <div className="topbar">
         <button className="icon-btn square" title="返回书架" onClick={() => actions.closeBook()}>
           <ChevronLeft size={19} />
@@ -72,9 +92,16 @@ export default function Workspace({ book }: { book: Book }) {
         </button>
 
         <span className="topbar-book">{book.title}</span>
-        {book.projectPath && (
-          <span className="bound-badge" title={`已绑定目录：${book.projectPath}（自动同步）`}>
-            <HardDrive size={13} /> 已落盘
+        {book.projectPath ? (
+          <span
+            className={`bound-badge ${diskSync === 'syncing' ? 'syncing' : ''}`}
+            title={`已绑定目录：${book.projectPath}（自动同步）`}
+          >
+            <HardDrive size={13} /> {diskSync === 'syncing' ? '落盘同步中…' : '已落盘'}
+          </span>
+        ) : (
+          <span className="bound-badge local" title="未绑定目录，数据保存在本地">
+            <HardDrive size={13} /> 本地保存
           </span>
         )}
         {currentChapter && <span className="topbar-chapter">{currentChapter.title}</span>}
@@ -98,6 +125,16 @@ export default function Workspace({ book }: { book: Book }) {
           </button>
         </div>
 
+        <button className="icon-btn square" title="全文搜索 / 替换" onClick={() => setShowSearch(true)}>
+          <Search size={17} />
+        </button>
+        <button
+          className={`icon-btn square ${focusMode ? 'active' : ''}`}
+          title={focusMode ? '退出专注模式' : '专注模式（隐藏目录与侧栏）'}
+          onClick={() => setFocusMode((v) => !v)}
+        >
+          <Focus size={17} />
+        </button>
         <FileMenu book={book} />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -132,7 +169,9 @@ export default function Workspace({ book }: { book: Book }) {
       </div>
 
       <div className="ws-body">
-        {showTree && <ChapterTree book={book} volumes={volumes} currentChapterId={currentChapter?.id ?? null} />}
+        {showTree && !focusMode && (
+          <ChapterTree book={book} volumes={volumes} currentChapterId={currentChapter?.id ?? null} />
+        )}
         {mode === 'outline' ? (
           <OutlineView
             book={book}
@@ -142,13 +181,17 @@ export default function Workspace({ book }: { book: Book }) {
             }}
           />
         ) : (
-          <Editor chapter={currentChapter} fontSize={fontSize} />
+          <Editor chapter={currentChapter} fontSize={fontSize} focus={focusMode} typewriter={focusMode} />
         )}
-        {showSide && <SidePanel book={book} chapter={currentChapter} tab={sideTab} onTabChange={setSideTab} />}
+        {showSide && !focusMode && (
+          <SidePanel book={book} chapter={currentChapter} tab={sideTab} onTabChange={setSideTab} />
+        )}
       </div>
 
       <StatsBar book={book} chapter={currentChapter} />
       {showAi && <AiSettingsModal onClose={() => setShowAi(false)} />}
+      {showSearch && <SearchModal book={book} onClose={() => setShowSearch(false)} />}
+      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

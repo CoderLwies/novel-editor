@@ -317,6 +317,83 @@ async function main() {
   const booksAfter = migRaw ? JSON.parse(migRaw).books.length : -1
   console.log('E2E legacy key migration -> new key restored:', !!migRaw, '| books kept:', booksBefore === booksAfter)
 
+  // 6) A 组：搜索跳转 / 全部替换 / 快照回滚 / 撤销重做 / 专注模式
+  await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('混沌神尊'))?.click()`)
+  await sleep(700)
+  const setField = (sel, val) => js(`(() => {
+    const inp = ${sel}
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(inp, ${JSON.stringify(val)})
+    inp.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  const setTa = (val) => js(`(() => {
+    const ta = document.querySelector('.editor-textarea')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(ta, ${JSON.stringify(val)})
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+
+  // 6a 搜索 + 跳转定位
+  await js(`document.querySelector('button[title="全文搜索 / 替换"]').click()`)
+  await sleep(400)
+  await setField(`document.querySelector('.modal input.field')`, '林尘')
+  await sleep(400)
+  const hitCount = await js(`document.querySelectorAll('.modal .ai-item').length`)
+  await js(`document.querySelector('.modal .ai-item .ai-item-body')?.click()`)
+  await sleep(700)
+  const selText = await js(`(() => { const ta = document.querySelector('.editor-textarea'); return ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : null })()`)
+  console.log('E2E search -> hits:', hitCount, '| jump selects keyword:', selText === '林尘')
+
+  // 6b 全部替换
+  await js(`document.querySelector('button[title="全文搜索 / 替换"]').click()`)
+  await sleep(400)
+  await setField(`document.querySelectorAll('.modal input.field')[0]`, '林尘')
+  await sleep(300)
+  await setField(`document.querySelectorAll('.modal input.field')[1]`, '林尘E2E')
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('全部替换'))?.click()`)
+  await sleep(700)
+  const replaced = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).chapters.some(c=>c.content.includes('林尘E2E'))`)
+  console.log('E2E replace-all -> persisted:', replaced)
+  await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('完成'))?.click()`)
+  await sleep(400)
+
+  // 6c 快照 + 回滚
+  await js(`[...document.querySelectorAll('.editor-sub .icon-btn')].find(b=>(b.title||'').includes('版本历史'))?.click()`)
+  await sleep(400)
+  await js(`[...document.querySelectorAll('.modal .btn')].find(b=>b.textContent.includes('为当前内容存快照'))?.click()`)
+  await sleep(400)
+  await setTa('快照前标记内容。')
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.editor-sub .icon-btn')].find(b=>(b.title||'').includes('版本历史'))?.click()`)
+  await sleep(400)
+  await js(`[...document.querySelectorAll('.modal .ai-item .btn')].find(b=>b.textContent.includes('回滚'))?.click()`)
+  await sleep(500)
+  const rolledBack = await js(`!document.querySelector('.editor-textarea').value.includes('快照前标记')`)
+  console.log('E2E snapshot rollback ->', rolledBack)
+
+  // 6d 撤销 / 重做
+  await setTa('撤销测试第一版')
+  await sleep(800)
+  await setTa('撤销测试第二版')
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.editor-sub .icon-btn')].find(b=>(b.title||'').includes('撤销'))?.click()`)
+  await sleep(300)
+  const undone = await js(`document.querySelector('.editor-textarea').value === '撤销测试第一版'`)
+  await js(`[...document.querySelectorAll('.editor-sub .icon-btn')].find(b=>(b.title||'').includes('重做'))?.click()`)
+  await sleep(300)
+  const redone = await js(`document.querySelector('.editor-textarea').value === '撤销测试第二版'`)
+  console.log('E2E undo/redo ->', undone, redone)
+
+  // 6e 专注模式
+  await js(`document.querySelector('button[title^="专注模式"]').click()`)
+  await sleep(400)
+  const focused = await js(`!!document.querySelector('.workspace.focus .editor-pane.focus')`)
+  await shot('16-focus-mode.png')
+  await js(`document.querySelector('button[title^="退出专注模式"]').click()`)
+  await sleep(300)
+  console.log('E2E focus mode ->', focused)
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()

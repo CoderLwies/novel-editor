@@ -97,6 +97,22 @@ export interface UIState {
   fontSize: number
   lastBookId: ID | null
   lastChapterId: ID | null
+  jump: JumpTarget | null
+  lastGoalToastDate: string
+}
+
+export interface ChapterSnapshot {
+  id: ID
+  chapterId: ID
+  at: number
+  content: string
+}
+
+export interface JumpTarget {
+  chapterId: ID
+  index: number
+  length: number
+  nonce: number
 }
 
 /** OpenAI 兼容接口配置；baseUrl 为空表示未启用 AI */
@@ -116,4 +132,5 @@ export interface AppState {
   dailyLog: DailyLog
   ui: UIState
   ai: AIConfig
+  snapshots: ChapterSnapshot[]
 }

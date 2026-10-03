@@ -230,6 +230,31 @@ label.lbl {
   align-items: center;
   gap: 10px;
 }
+.editor-tools {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  margin-left: 6px;
+}
+.bound-badge.syncing {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.bound-badge.local {
+  opacity: 0.75;
+}
+.workspace.focus .ws-body {
+  grid-template-columns: 1fr;
+}
+.editor-pane.focus .editor-scroll {
+  max-width: 880px;
+  margin: 0 auto;
+}
+.icon-btn.active {
+  color: var(--accent);
+  background: rgba(124, 92, 255, 0.14);
+}
+
 .brand-logo {
   width: 38px;
   height: 38px;
