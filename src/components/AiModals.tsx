@@ -76,13 +76,19 @@ export function AiSettingsModal({ onClose }: { onClose: () => void }) {
         placeholder="sk-…"
         onChange={(e) => actions.setAiConfig({ apiKey: e.target.value })}
       />
-      <label className="lbl">模型（当前仅支持 deepseek-flash）</label>
+      <label className="lbl">模型（预设或自填）</label>
+      <div className="ol-chips" style={{ marginBottom: 6 }}>
+        {['deepseek-flash', 'deepseek-chat', 'deepseek-reasoner'].map((m) => (
+          <button key={m} className={`ol-chip ${ai.model === m ? 'sel' : ''}`} onClick={() => actions.setAiConfig({ model: m })}>
+            {m}
+          </button>
+        ))}
+      </div>
       <input
         className="field"
         value={ai.model}
-        readOnly
-        title="当前仅支持 deepseek-flash"
-        style={{ opacity: 0.7, cursor: 'not-allowed' }}
+        placeholder="模型名…"
+        onChange={(e) => actions.setAiConfig({ model: e.target.value })}
       />
       <div className="hint">
         配置仅保存在本机 localStorage；请求由桌面端直连你所填的地址。

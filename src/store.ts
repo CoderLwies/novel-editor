@@ -82,7 +82,7 @@ function migrate(raw: AppState): AppState {
     ai: {
       baseUrl: ai?.baseUrl?.trim() ? ai.baseUrl : DEFAULT_AI_BASE_URL,
       apiKey: ai?.apiKey ?? '',
-      model: AI_MODEL,
+      model: ai?.model?.trim() ? ai.model : AI_MODEL,
     },
   }
 }
@@ -385,7 +385,7 @@ export const actions = {
     set((s) => ({ ...s, ui: { ...s.ui, theme } }))
   },
   setAiConfig(patch: Partial<AIConfig>) {
-    set((s) => ({ ...s, ai: { ...s.ai, ...patch, model: AI_MODEL } }))
+    set((s) => ({ ...s, ai: { ...s.ai, ...patch } }))
   },
   saveSnapshot(chapterId: ID) {
     set((s) => {

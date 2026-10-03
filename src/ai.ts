@@ -116,6 +116,45 @@ export function charNames(c: Character): string[] {
   return [c.name, ...(c.aliases ?? [])].filter((n) => n && n.trim())
 }
 
+export interface GenContinue {
+  text: string
+}
+
+export interface GenPolish {
+  text: string
+}
+
+export interface GenReview {
+  issues: string[]
+}
+
+export function continuePrompt(book: Book, ch: Chapter, selected: string, before: string): string {
+  return [
+    `作品《${book.title}》章节《${ch.title}》。`,
+    `选段前文："""${before.slice(-800)}"""`,
+    `选段："""${selected}"""`,
+    '请顺着选段的剧情与文风续写 200 到 400 字，直接给续写正文，不要解释。',
+    'schema: {"text":""}',
+  ].join('\n')
+}
+
+export function polishPrompt(selected: string): string {
+  return [
+    '润色以下网文段落：保持原意与人物口吻，优化节奏与用词，不要增删剧情。',
+    `"""${selected}"""`,
+    'schema: {"text":""}',
+  ].join('\n')
+}
+
+export function reviewPrompt(book: Book, ch: Chapter, selected: string): string {
+  return [
+    `作品《${book.title}》章节《${ch.title}》选段如下：`,
+    `"""${selected}"""`,
+    '以网文编辑视角审查：指出节奏、逻辑、对话、钩子问题，每条一句话。',
+    'schema: {"issues":[""]}',
+  ].join('\n')
+}
+
 /** 本地事实快照：正文命中角色名或别名即挂到章纲出场角色 */
 export function snapshotCast(content: string, chars: Character[], current: ID[]): ID[] {
   const hit = chars.filter((c) => charNames(c).some((n) => content.includes(n))).map((c) => c.id)
@@ -143,6 +182,14 @@ export function consistencyCheck(state: AppState, bookId: ID): CheckIssue[] {
         const ch = charById.get(id)
         if (ch && !charNames(ch).some((n) => c.content.includes(n))) {
           issues.push({ level: 'info', chapterId: c.id, text: `《${c.title}》挂了角色"${ch.name}"但正文未出现该名字或别名` })
+        }
+      }
+      for (const [, ch2] of charById) {
+        const names = charNames(ch2)
+        if (names.length < 2) continue
+        const used = names.filter((n) => c.content.includes(n))
+        if (used.length > 1) {
+          issues.push({ level: 'info', chapterId: c.id, text: `《${c.title}》对角色"${ch2.name}"混用称呼：${used.join('、')}` })
         }
       }
     }

@@ -43,6 +43,12 @@ function startFakeAi() {
           }
         } else if (body.includes('实际走向')) {
           payload = { synopsis: '回写概要E2E', turning: '回写转折E2E', hook: '回写钩子E2E' }
+        } else if (body.includes('续写 200 到 400 字')) {
+          payload = { text: '续写E2E' }
+        } else if (body.includes('润色以下网文段落')) {
+          payload = { text: '润色E2E' }
+        } else if (body.includes('网文编辑视角审查')) {
+          payload = { issues: ['节奏偏慢E2E'] }
         } else {
           payload = { ok: true }
         }
@@ -486,6 +492,58 @@ async function main() {
   const fsMd = fs.existsSync(stubSavePath) ? fs.readFileSync(stubSavePath, 'utf8') : ''
   console.log('E2E block2 -> stat line:', statLine, '| relations:', relCount, '| priority selects:', prioSelects,
     '| char chips in fs:', relChips, '| settings md:', setMd.includes('设定集'), '| foreshadow md:', fsMd.includes('伏笔表'))
+
+  // 11) 块3：选中文本 AI 续写/审查、多模型预设、别名混用巡检
+  const aiSrv2 = await startFakeAi()
+  const port2 = aiSrv2.address().port
+  await js(`(() => {
+    const K = 'zizhou-state-v1'
+    const s = JSON.parse(localStorage.getItem(K))
+    s.ai = { baseUrl: 'http://127.0.0.1:${port2}', apiKey: '', model: 'deepseek-flash' }
+    localStorage.setItem(K, JSON.stringify(s))
+  })()`)
+  await win.reload()
+  await sleep(1400)
+  await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('混沌神尊'))?.click()`)
+  await sleep(700)
+  await js(`(() => {
+    const ta = document.querySelector('.editor-textarea')
+    ta.focus()
+    ta.setSelectionRange(0, 4)
+    ta.dispatchEvent(new Event('select', { bubbles: true }))
+  })()`)
+  await sleep(400)
+  const toolBtns = await js(`[...document.querySelectorAll('.editor-sub .btn')].map(b=>b.textContent).join('|')`)
+  await js(`[...document.querySelectorAll('.editor-sub .btn')].find(b=>b.textContent.includes('续写'))?.click()`)
+  await sleep(900)
+  await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('采用'))?.click()`)
+  await sleep(500)
+  const continued = await js(`document.querySelector('.editor-textarea').value.includes('续写E2E')`)
+  await js(`document.querySelector('button[title="AI 接口设置"]').click()`)
+  await sleep(400)
+  const modelChips = await js(`[...document.querySelectorAll('.modal .ol-chip')].map(b=>b.textContent).join('|')`)
+  await js(`[...document.querySelectorAll('.modal .ol-chip')].find(b=>b.textContent.includes('deepseek-chat'))?.click()`)
+  await sleep(300)
+  const modelNow = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).ai.model`)
+  await js(`document.querySelector('.modal-head .icon-btn')?.click()`)
+  await sleep(300)
+  await js(`(() => {
+    const ta = document.querySelector('.editor-textarea')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(ta, ta.value + '\\n林尘与林少爷对峙。')
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  await sleep(600)
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='大纲').click()`)
+  await sleep(300)
+  await js(`document.querySelector('button[title="一致性巡检"]').click()`)
+  await sleep(500)
+  const mixedIssue = await js(`[...document.querySelectorAll('.modal .ai-issue')].map(e=>e.textContent).join('|').includes('混用称呼')`)
+  await shot('19-ai-text-ops.png')
+  await js(`document.querySelector('.modal-head .icon-btn')?.click()`)
+  aiSrv2.close()
+  console.log('E2E block3 -> sel tools:', toolBtns.includes('续写'), '| continued:', continued,
+    '| model chips:', modelChips.includes('deepseek-chat'), '| model now:', modelNow, '| mixed-name issue:', mixedIssue)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

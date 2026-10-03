@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileText, CheckCircle2, Undo2, Redo2, History } from 'lucide-react'
+import { FileText, CheckCircle2, Undo2, Redo2, History, Loader2 } from 'lucide-react'
 import { useStore, actions } from '../store'
-import type { Chapter, ChapterStatus } from '../types'
+import type { Book, Chapter, ChapterStatus } from '../types'
 import { countWords, formatNumber, relativeTime } from '../utils'
+import {
+  aiReady, chatJSON, continuePrompt, polishPrompt, reviewPrompt, SYS_PLANNER,
+  type GenContinue, type GenPolish, type GenReview,
+} from '../ai'
 import Modal from './Modal'
 
 const STATUS: { value: ChapterStatus; label: string }[] = [
@@ -26,6 +30,11 @@ export default function Editor({
   const [content, setContent] = useState(chapter?.content ?? '')
   const [title, setTitle] = useState(chapter?.title ?? '')
   const [showHistory, setShowHistory] = useState(false)
+  const [sel, setSel] = useState<{ start: number; end: number; text: string } | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiResult, setAiResult] = useState<
+    { kind: 'continue' | 'polish' | 'review'; text?: string; issues?: string[] } | null
+  >(null)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -45,6 +54,8 @@ export default function Editor({
       future.current = []
       setCanUndo(false)
       setCanRedo(false)
+      setSel(null)
+      setAiResult(null)
       requestAnimationFrame(() => taRef.current?.focus())
     }
     if (!chapter) lastId.current = null
@@ -156,6 +167,39 @@ export default function Editor({
 
   const wc = countWords(content)
   const snaps = state.snapshots.filter((s) => s.chapterId === chapter.id).slice().reverse()
+  const book: Book | undefined = state.books.find((b) => b.id === chapter.bookId)
+
+  async function runAi(kind: 'continue' | 'polish' | 'review') {
+    if (!sel || !book || !chapter) return
+    setAiBusy(true)
+    setAiResult(null)
+    try {
+      if (kind === 'continue') {
+        const r = await chatJSON<GenContinue>(state.ai, SYS_PLANNER, continuePrompt(book, chapter, sel.text, content.slice(0, sel.start)))
+        setAiResult({ kind, text: r.text ?? '' })
+      } else if (kind === 'polish') {
+        const r = await chatJSON<GenPolish>(state.ai, SYS_PLANNER, polishPrompt(sel.text))
+        setAiResult({ kind, text: r.text ?? '' })
+      } else {
+        const r = await chatJSON<GenReview>(state.ai, SYS_PLANNER, reviewPrompt(book, chapter, sel.text))
+        setAiResult({ kind, issues: r.issues ?? [] })
+      }
+    } catch (e) {
+      setAiResult({ kind, text: `失败：${(e as Error).message}` })
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  function applyAi() {
+    if (!aiResult || !sel || aiResult.kind === 'review') return
+    pushHistory(content)
+    const ins = aiResult.text ?? ''
+    if (aiResult.kind === 'continue') commit(content.slice(0, sel.end) + ins + content.slice(sel.end))
+    else commit(content.slice(0, sel.start) + ins + content.slice(sel.end))
+    setAiResult(null)
+    setSel(null)
+  }
 
   return (
     <div className={`editor-pane ${focus ? 'focus' : ''}`}>
@@ -196,6 +240,19 @@ export default function Editor({
               <History size={15} />
             </button>
           </span>
+          {sel && aiReady(state.ai) && (
+            <span className="editor-tools">
+              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} disabled={aiBusy} onClick={() => runAi('continue')}>
+                {aiBusy && <Loader2 size={12} className="spin" />} 续写
+              </button>
+              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} disabled={aiBusy} onClick={() => runAi('polish')}>
+                润色
+              </button>
+              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} disabled={aiBusy} onClick={() => runAi('review')}>
+                审查
+              </button>
+            </span>
+          )}
         </div>
       </div>
 
@@ -208,6 +265,12 @@ export default function Editor({
           placeholder="从这里开始写下你的故事…"
           onChange={(e) => onContentChange(e.target.value)}
           onKeyDown={onKey}
+          onSelect={(e) => {
+            const t = e.currentTarget
+            const s = t.selectionStart
+            const en = t.selectionEnd
+            setSel(s !== en ? { start: s, end: en, text: t.value.slice(s, en) } : null)
+          }}
           spellCheck={false}
         />
       </div>
@@ -250,6 +313,39 @@ export default function Editor({
               </button>
             </div>
           ))}
+        </Modal>
+      )}
+      {aiResult && (
+        <Modal
+          title={aiResult.kind === 'continue' ? 'AI 续写' : aiResult.kind === 'polish' ? 'AI 润色' : 'AI 审查'}
+          onClose={() => setAiResult(null)}
+          width={560}
+          foot={
+            aiResult.kind !== 'review' ? (
+              <>
+                <button className="btn btn-ghost" onClick={() => setAiResult(null)}>取消</button>
+                <button className="btn btn-primary" onClick={applyAi}>采用</button>
+              </>
+            ) : undefined
+          }
+        >
+          {aiResult.kind === 'review' ? (
+            (aiResult.issues ?? []).length === 0 ? (
+              <div className="ai-ok">未发现问题。</div>
+            ) : (
+              (aiResult.issues ?? []).map((t, i) => (
+                <div className="ai-issue" key={i}><span>{t}</span></div>
+              ))
+            )
+          ) : (
+            <textarea
+              className="field"
+              rows={10}
+              value={aiResult.text ?? ''}
+              placeholder="AI 结果…"
+              onChange={(e) => setAiResult({ ...aiResult, text: e.target.value })}
+            />
+          )}
         </Modal>
       )}
     </div>
