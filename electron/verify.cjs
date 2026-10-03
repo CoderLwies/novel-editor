@@ -66,6 +66,11 @@ ipcMain.handle('fs:writeFile', async (_e, p, content) => {
   await fsp.writeFile(p, content, 'utf8')
   return true
 })
+ipcMain.handle('fs:writeBinaryFile', async (_e, p, base64) => {
+  await fsp.mkdir(path.dirname(p), { recursive: true })
+  await fsp.writeFile(p, Buffer.from(base64, 'base64'))
+  return true
+})
 ipcMain.handle('fs:mkdirp', async (_e, p) => { await fsp.mkdir(p, { recursive: true }); return p })
 ipcMain.handle('fs:readdir', async (_e, p) =>
   (await fsp.readdir(p, { withFileTypes: true })).map((x) => ({ name: x.name, isDir: x.isDirectory() })))
@@ -544,6 +549,24 @@ async function main() {
   aiSrv2.close()
   console.log('E2E block3 -> sel tools:', toolBtns.includes('续写'), '| continued:', continued,
     '| model chips:', modelChips.includes('deepseek-chat'), '| model now:', modelNow, '| mixed-name issue:', mixedIssue)
+
+  // 12) EPUB 导出：zip 结构 / mimetype / OPF 标题与章节数
+  await js(`document.querySelector('.filemenu > button')?.click()`)
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.menu-item')].find(b=>b.textContent.includes('导出 EPUB'))?.click()`)
+  await sleep(1500)
+  const epubBuf = fs.existsSync(stubSavePath) ? fs.readFileSync(stubSavePath) : null
+  let epubMime = false
+  let epubTitle = false
+  let epubChapters = 0
+  if (epubBuf && epubBuf.slice(0, 2).toString() === 'PK') {
+    const JSZip = require('jszip')
+    const z = await JSZip.loadAsync(epubBuf)
+    epubMime = (await z.file('mimetype').async('string')) === 'application/epub+zip'
+    epubTitle = (await z.file('OEBPS/content.opf').async('string')).includes('混沌神尊')
+    epubChapters = Object.keys(z.files).filter((k) => /^OEBPS\/ch\d+\.xhtml$/.test(k)).length
+  }
+  console.log('E2E epub -> zip:', !!epubBuf, '| mimetype:', epubMime, '| title:', epubTitle, '| chapter files:', epubChapters)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

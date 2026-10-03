@@ -35,7 +35,7 @@ Electron 桌面应用 · React + Vite + TypeScript · 无后端，数据保存�
   - `chapters/NNNN_标题.md`（正文 + YAML frontmatter 携带章纲与伏笔埋收字段）
 - **外部编辑器改 md 可回读**：重新导入时 frontmatter 优先合并
 - 导入：字舟项目目录 / 单个 TXT·MD（自动拆卷章）；兼容旧版 v1 项目与旧存储键自动迁移
-- 导出：项目包 / 纯 TXT / Markdown / 全书大纲 / 设定集 / 伏笔表
+- 导出：项目包 / 纯 TXT / Markdown / 全书大纲 / 设定集 / 伏笔表 / **EPUB 电子书**（标准 EPUB3，含导航与卷章结构）
 
 ### AI 辅助
 - **拆章纲**（卷级）：依据总纲 + 卷纲规划新章节，预览多选后建章
@@ -165,7 +165,6 @@ foreshadowPayoffs: [fs_2]
 
 ## 路线图
 
-- [ ] EPUB 导出
 - [ ] 代码签名与自动更新（electron-updater）
 - [ ] 单元测试（frontmatter / parseJsonLoose / consistencyCheck）
 - [ ] 大书状态分片或 IndexedDB；章节树/大纲表虚拟化

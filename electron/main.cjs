@@ -15,6 +15,12 @@ ipcMain.handle('fs:writeFile', async (_e, p, content) => {
   return true
 })
 
+ipcMain.handle('fs:writeBinaryFile', async (_e, p, base64) => {
+  await fsp.mkdir(path.dirname(p), { recursive: true })
+  await fsp.writeFile(p, Buffer.from(base64, 'base64'))
+  return true
+})
+
 ipcMain.handle('fs:mkdirp', async (_e, p) => {
   await fsp.mkdir(p, { recursive: true })
   return p

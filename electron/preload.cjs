@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('fsAPI', {
   isElectron: true,
   readFile: (p) => ipcRenderer.invoke('fs:readFile', p),
   writeFile: (p, content) => ipcRenderer.invoke('fs:writeFile', p, content),
+  writeBinaryFile: (p, base64) => ipcRenderer.invoke('fs:writeBinaryFile', p, base64),
   mkdirp: (p) => ipcRenderer.invoke('fs:mkdirp', p),
   readdir: (p) => ipcRenderer.invoke('fs:readdir', p),
   exists: (p) => ipcRenderer.invoke('fs:exists', p),

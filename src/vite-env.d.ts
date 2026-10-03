@@ -14,6 +14,7 @@ interface FsAPI {
   isElectron: boolean
   readFile: (p: string) => Promise<string>
   writeFile: (p: string, content: string) => Promise<boolean>
+  writeBinaryFile: (p: string, base64: string) => Promise<boolean>
   mkdirp: (p: string) => Promise<string>
   readdir: (p: string) => Promise<FsDirEntry[]>
   exists: (p: string) => Promise<boolean>

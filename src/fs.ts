@@ -60,6 +60,34 @@ export async function saveTextFile(
   return { path: suggestedName, downloaded: true }
 }
 
+export async function saveBinaryFile(
+  suggestedName: string,
+  data: Uint8Array,
+  filters?: { name: string; extensions: string[] }[],
+): Promise<SaveResult | null> {
+  if (native) {
+    const p = await native.saveFile({ defaultPath: suggestedName, filters })
+    if (!p) return null
+    let bin = ''
+    const chunk = 0x8000
+    for (let i = 0; i < data.length; i += chunk) {
+      bin += String.fromCharCode(...data.subarray(i, i + chunk))
+    }
+    await native.writeBinaryFile(p, btoa(bin))
+    return { path: p, downloaded: false }
+  }
+  const blob = new Blob([data as BlobPart], { type: 'application/epub+zip' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = suggestedName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return { path: suggestedName, downloaded: true }
+}
+
 export async function openTextFile(
   accept: string,
   filters?: { name: string; extensions: string[] }[],

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { FolderDown, FolderSync, HardDriveDownload, FileDown, FileText, ListTree, Unlink, RefreshCw } from 'lucide-react'
+import { FolderDown, FolderSync, HardDriveDownload, FileDown, FileText, ListTree, Unlink, RefreshCw, Book } from 'lucide-react'
 import { useStore, actions } from '../store'
-import type { Book } from '../types'
-import { pickDirectory, saveTextFile, supportsProjectFolders } from '../fs'
+import type { Book as BookType } from '../types'
+import { pickDirectory, saveTextFile, saveBinaryFile, supportsProjectFolders } from '../fs'
 import { writeProjectToDir, exportBookTxt, exportBookMd, exportOutlineMd, exportSettingsMd, exportForeshadowMd, sanitizeFilename } from '../project'
+import { buildEpub } from '../epub'
 
-export default function FileMenu({ book }: { book: Book }) {
+export default function FileMenu({ book }: { book: BookType }) {
   const state = useStore()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -110,6 +111,15 @@ export default function FileMenu({ book }: { book: Book }) {
       if (r) setToast(r.downloaded ? `已下载：${r.path}` : `已导出：${r.path}`)
     })
 
+  const exportEpub = () =>
+    run(async () => {
+      const data = await buildEpub(state, book.id)
+      const r = await saveBinaryFile(`${sanitizeFilename(book.title)}.epub`, data, [
+        { name: 'EPUB', extensions: ['epub'] },
+      ])
+      if (r) setToast(r.downloaded ? `已下载：${r.path}` : `已导出：${r.path}`)
+    })
+
   return (
     <div className="filemenu" ref={rootRef}>
       <button className={`icon-btn ${open ? 'active' : ''}`} onClick={() => setOpen((v) => !v)} disabled={busy}>
@@ -166,6 +176,10 @@ export default function FileMenu({ book }: { book: Book }) {
           </button>
           <button className="menu-item" onClick={exportForeshadow}>
             <ListTree size={15} /> 导出伏笔表 Markdown
+          </button>
+          <div className="menu-sep" />
+          <button className="menu-item" onClick={exportEpub}>
+            <Book size={15} /> 导出 EPUB 电子书
           </button>
         </div>
       )}
