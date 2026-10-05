@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('fsAPI', {
   mkdirp: (p) => ipcRenderer.invoke('fs:mkdirp', p),
   readdir: (p) => ipcRenderer.invoke('fs:readdir', p),
   exists: (p) => ipcRenderer.invoke('fs:exists', p),
+  unlink: (p) => ipcRenderer.invoke('fs:unlink', p),
   openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
   openFile: (filters) => ipcRenderer.invoke('dialog:openFile', filters),
   saveFile: (opts) => ipcRenderer.invoke('dialog:saveFile', opts),

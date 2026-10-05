@@ -18,6 +18,7 @@ interface FsAPI {
   mkdirp: (p: string) => Promise<string>
   readdir: (p: string) => Promise<FsDirEntry[]>
   exists: (p: string) => Promise<boolean>
+  unlink: (p: string) => Promise<boolean>
   openDirectory: () => Promise<string | null>
   openFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | null>
   saveFile: (opts?: FsSaveOptions) => Promise<string | null>

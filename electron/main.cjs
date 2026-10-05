@@ -33,6 +33,11 @@ ipcMain.handle('fs:readdir', async (_e, p) => {
 
 ipcMain.handle('fs:exists', async (_e, p) => fsSync.existsSync(p))
 
+ipcMain.handle('fs:unlink', async (_e, p) => {
+  await fsp.unlink(p)
+  return true
+})
+
 ipcMain.handle('dialog:openDirectory', async () => {
   const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
   return r.canceled ? null : r.filePaths[0]

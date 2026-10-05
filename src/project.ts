@@ -7,6 +7,7 @@ import type {
   Foreshadow,
   ChapterStatus,
   OutlineStatus,
+  ChapterSnapshot,
   ID,
 } from './types'
 import { fsLow } from './fs'
@@ -45,6 +46,7 @@ export interface ProjectData {
   characters: Character[]
   settings: SettingItem[]
   foreshadows: Foreshadow[]
+  snapshots: ChapterSnapshot[]
 }
 
 /* ------------------------------- 工具 ------------------------------- */
@@ -122,6 +124,21 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
     )
   }
 
+  const historyDir = joinPath(dir, 'history')
+  await fsLow.mkdirp(historyDir)
+  const chIds = new Set(chaptersMeta.map((m) => m.id))
+  const snaps = state.snapshots.filter((s) => chIds.has(s.chapterId))
+  const snapIndex: Record<string, { chapterId: ID; at: number }> = {}
+  for (const s of snaps) {
+    snapIndex[s.id] = { chapterId: s.chapterId, at: s.at }
+    await fsLow.writeFile(joinPath(historyDir, `${s.id}.md`), s.content)
+  }
+  await fsLow.writeFile(joinPath(historyDir, 'index.json'), JSON.stringify(snapIndex, null, 2))
+  for (const en of await fsLow.readdir(historyDir)) {
+    if (en.isDir || en.name === 'index.json') continue
+    if (!snapIndex[en.name.replace(/\.md$/, '')]) await fsLow.unlink(joinPath(historyDir, en.name))
+  }
+
   const payload = {
     format: PROJECT_FORMAT,
     version: PROJECT_VERSION,
@@ -174,6 +191,29 @@ export async function readProjectFromDir(dir: string): Promise<ProjectData> {
     })
   }
 
+  const snapshots: ChapterSnapshot[] = []
+  const historyDir = joinPath(dir, 'history')
+  if (await fsLow.exists(historyDir)) {
+    try {
+      const idx = JSON.parse(await fsLow.readFile(joinPath(historyDir, 'index.json'))) as Record<
+        string,
+        { chapterId: ID; at: number }
+      >
+      for (const [id, meta] of Object.entries(idx)) {
+        if (await fsLow.exists(joinPath(historyDir, `${id}.md`))) {
+          snapshots.push({
+            id,
+            chapterId: meta.chapterId,
+            at: meta.at,
+            content: await fsLow.readFile(joinPath(historyDir, `${id}.md`)),
+          })
+        }
+      }
+    } catch {
+      /* history 损坏时忽略 */
+    }
+  }
+
   return {
     book: parsed.book,
     volumes: parsed.volumes ?? [],
@@ -182,6 +222,7 @@ export async function readProjectFromDir(dir: string): Promise<ProjectData> {
     characters: parsed.characters ?? [],
     settings: parsed.settings ?? [],
     foreshadows: parsed.foreshadows ?? [],
+    snapshots,
   }
 }
 
@@ -360,7 +401,7 @@ export function parseSingleText(rawText: string, fallbackTitle: string): Project
     updatedAt: Date.now(),
   }
 
-  return { book, volumes, chaptersMeta, chapterContents: contents, characters: [], settings: [], foreshadows: [] }
+  return { book, volumes, chaptersMeta, chapterContents: contents, characters: [], settings: [], foreshadows: [], snapshots: [] }
 }
 
 export function exportSettingsMd(state: AppState, bookId: ID): string {

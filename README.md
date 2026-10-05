@@ -116,9 +116,10 @@ npm run electron:build
 ```
 <作品目录>/
 ├── book.json                 # format: zizhou-project, version: 2
-└── chapters/
-    ├── 0001_第一章 标题.md
-    └── 0002_第二章 标题.md
+├── chapters/
+│   ├── 0001_第一章 标题.md
+│   └── 0002_第二章 标题.md
+└── history/                  # 章节快照（index.json 元数据 + 每快照一个 md）
 ```
 
 章节 md 以 frontmatter 携带章纲，正文在其后：
@@ -158,7 +159,8 @@ foreshadowPayoffs: [fs_2]
 
 ## 验证
 
-- `npx electron electron/verify.cjs`：无头端到端。stub 目录/保存对话框、清空 localStorage、驱动 DOM、断言磁盘与状态、`capturePage` 截图；内置回环假 AI 服务跑通拆纲/分支/回写/选区续写/巡检全链路，并覆盖落盘往返、旧键迁移、搜索替换、快照回滚、撤销重做、专注模式、伏笔埋收、角色关系与导出。
+- `npm test`：单元测试（vitest），覆盖 frontmatter 编解码、AI JSON 解析/角色快照/巡检规则、store 迁移、EPUB 包结构。
+- `npx electron electron/verify.cjs`：无头端到端。stub 目录/保存对话框、清空 localStorage、驱动 DOM、断言磁盘与状态、`capturePage` 截图；内置回环假 AI 服务跑通拆纲/分支/回写/选区续写/巡检全链路，并覆盖落盘往返、旧键迁移、搜索替换、快照回滚与落盘、撤销重做、专注模式、伏笔埋收、角色关系与导出。
 - `npx electron electron/capture.cjs`：生成界面截图到 `.preview/`。
 
 ---
@@ -166,9 +168,8 @@ foreshadowPayoffs: [fs_2]
 ## 路线图
 
 - [ ] 代码签名与自动更新（electron-updater）
-- [ ] 单元测试（frontmatter / parseJsonLoose / consistencyCheck）
 - [ ] 大书状态分片或 IndexedDB；章节树/大纲表虚拟化
-- [ ] 错误边界与崩溃恢复、应用内帮助页
+- [ ] 应用内帮助页
 - [ ] 角色成长弧线、关系图可视化、AI 角色卡补全
 - [ ] 伏笔↔设定互挂、跨章时间线矛盾校验
 - [ ] macOS / Linux 打包

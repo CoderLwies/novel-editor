@@ -42,7 +42,7 @@ function load(): AppState {
 }
 
 /** 旧版本 localStorage / 项目文件缺少大纲字段时补默认值 */
-function migrate(raw: AppState): AppState {
+export function migrate(raw: AppState): AppState {
   const volumes = raw.volumes.map((v) => {
     const old = v as Partial<Volume>
     return { ...v, synopsis: old.synopsis ?? '', goal: old.goal ?? '', conflict: old.conflict ?? '' }
@@ -501,6 +501,9 @@ export const actions = {
       id: uid('fs'),
       bookId,
     }))
+    const importedSnaps = (data.snapshots ?? [])
+      .filter((sp) => chMap.has(sp.chapterId))
+      .map((sp) => ({ ...sp, chapterId: chMap.get(sp.chapterId)! }))
 
     set((s) => ({
       ...s,
@@ -510,6 +513,7 @@ export const actions = {
       characters: [...s.characters, ...characters],
       settings: [...s.settings, ...settings],
       foreshadows: [...s.foreshadows, ...foreshadows],
+      snapshots: [...s.snapshots.filter((x) => !importedSnaps.some((y) => y.id === x.id)), ...importedSnaps],
       ui: { ...s.ui, lastBookId: bookId, lastChapterId: chapters[0]?.id ?? null },
     }))
     return book

@@ -124,6 +124,7 @@ async function main() {
   const chDir = fs.existsSync(path.join(stubDir, 'chapters'))
   const badge = await js(`!!document.querySelector('.bound-badge')`)
   console.log('E2E new-book-with-dir -> book.json:', created, '| chapters dir:', chDir, '| bound badge:', badge)
+  const book1Dir = stubDir
 
   // 2) 新建章节并编辑，验证自动同步落盘
   await js(`document.querySelector('button[title="在此卷新建章节"]').click()`)
@@ -567,6 +568,31 @@ async function main() {
     epubChapters = Object.keys(z.files).filter((k) => /^OEBPS\/ch\d+\.xhtml$/.test(k)).length
   }
   console.log('E2E epub -> zip:', !!epubBuf, '| mimetype:', epubMime, '| title:', epubTitle, '| chapter files:', epubChapters)
+
+  // 13) 快照落盘：绑定书存快照 → history 目录 → 重导入回读
+  await js(`document.querySelector('button[title="返回书架"]').click()`)
+  await sleep(500)
+  await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('测试新书'))?.click()`)
+  await sleep(700)
+  await js(`[...document.querySelectorAll('.editor-sub .icon-btn')].find(b=>(b.title||'').includes('版本历史'))?.click()`)
+  await sleep(400)
+  await js(`[...document.querySelectorAll('.modal .btn')].find(b=>b.textContent.includes('为当前内容存快照'))?.click()`)
+  await sleep(1800)
+  const histIndex = fs.existsSync(path.join(book1Dir, 'history', 'index.json'))
+    ? JSON.parse(fs.readFileSync(path.join(book1Dir, 'history', 'index.json'), 'utf8'))
+    : null
+  const histCount = histIndex ? Object.keys(histIndex).length : 0
+  await js(`document.querySelector('button[title="返回书架"]').click()`)
+  await sleep(400)
+  stubDir = book1Dir
+  await js(`[...document.querySelectorAll('.btn')].find(b=>b.textContent.includes('导入项目目录'))?.click()`)
+  await sleep(1400)
+  const stSnap = JSON.parse(await js(`localStorage.getItem('zizhou-state-v1')`))
+  const snapBack = stSnap.books.some((b) =>
+    b.title === '测试新书' &&
+    stSnap.snapshots.some((sp) => stSnap.chapters.some((c) => c.bookId === b.id && c.id === sp.chapterId)),
+  )
+  console.log('E2E snapshot disk -> history entries:', histCount, '| readback after reimport:', snapBack)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

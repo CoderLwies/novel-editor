@@ -30,6 +30,7 @@ export const fsLow = {
   mkdirp: (p: string) => requireNative().mkdirp(p),
   readdir: (p: string) => requireNative().readdir(p),
   exists: (p: string) => requireNative().exists(p),
+  unlink: (p: string) => requireNative().unlink(p),
 }
 
 /* ------------------------------ 高层操作 ------------------------------ */
