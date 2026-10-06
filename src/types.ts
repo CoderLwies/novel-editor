@@ -60,6 +60,8 @@ export interface Chapter {
   foreshadowIds: ID[]
   /** 章纲：本章回收的伏笔 id */
   foreshadowPayoffs: ID[]
+  /** 章纲：故事内时间（第 N 天），留空表示不标记 */
+  storyDay?: number
   /** 章纲进度 */
   outlineStatus: OutlineStatus
   createdAt: number
@@ -86,6 +88,8 @@ export interface Character {
   speech?: string
   /** 角色关系：目标角色 + 关系称谓 */
   relations?: { targetId: ID; relation: string }[]
+  /** 成长弧线：阶段/境界变更，可关联章节 */
+  arc?: { id: ID; stage: string; chapterId?: ID }[]
 }
 
 export interface SettingItem {
@@ -110,6 +114,8 @@ export interface Foreshadow {
   priority?: ForeshadowPriority
   /** 关联角色 id */
   characterIds?: ID[]
+  /** 关联设定 id */
+  settingIds?: ID[]
 }
 
 /** date(YYYY-MM-DD) -> 当日新增字数 */

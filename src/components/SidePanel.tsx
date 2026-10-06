@@ -6,6 +6,7 @@ import { countWords, formatNumber } from '../utils'
 import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, aiReady, characterCardPrompt, type GenWriteback, type GenCharacterCard } from '../ai'
 import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal } from './AiModals'
 import Modal from './Modal'
+import RelationGraph from './RelationGraph'
 
 export type SideTab = 'outline' | 'characters' | 'settings' | 'foreshadow'
 
@@ -231,6 +232,15 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
                           <OlText label="视角人物" rows={1} value={c.pov}
                             placeholder="以谁的视角叙述…"
                             onChange={(t) => actions.updateChapter(c.id, { pov: t })} />
+                          <OlText label="故事时间（第 N 天）" rows={1}
+                            value={c.storyDay !== undefined && !Number.isNaN(c.storyDay) ? String(c.storyDay) : ''}
+                            placeholder="留空表示不标记，用于时间线校验…"
+                            onChange={(t) => {
+                              const n = Number(t)
+                              actions.updateChapter(c.id, {
+                                storyDay: t.trim() === '' || Number.isNaN(n) ? undefined : n,
+                              })
+                            }} />
 
                           {castPool.length > 0 && (
                             <div className="ol-chips-block">
@@ -438,6 +448,7 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
     setAiDraft(null)
   }
   const charNamesLocal = [c.name, ...(c.aliases ?? [])].filter((n) => n && n.trim())
+  const allChs = state.chapters.filter((x) => x.bookId === c.bookId)
   const filled = CHAR_FIELDS.filter((f) => (c[f.key] ?? '').trim()).length
   const st = CHAR_STATE[c.status ?? 'alive']
   return (
@@ -483,6 +494,11 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
       <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-faint)' }}>
         出场 {appear.length} 章{appear.length > 0 && ` · 最近《${appear[appear.length - 1].title}》`}
       </div>
+      {(c.arc ?? []).length > 0 && (
+        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-faint)' }}>
+          弧线：{(c.arc ?? []).map((a) => a.stage || '？').join(' → ')}
+        </div>
+      )}
       {(c.relations ?? []).length > 0 && (
         <div className="fs-appear" style={{ marginTop: 6 }}>
           <span className="fs-link-label">关系</span>
@@ -560,6 +576,45 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
           </button>
         </div>
       )}
+      {open && (
+        <div className="ol-field">
+          <div className="lbl">成长弧线</div>
+          {(c.arc ?? []).map((a, i) => (
+            <div className="rel-row" key={a.id}>
+              <input
+                className="field"
+                value={a.stage}
+                placeholder="阶段 / 境界…"
+                onChange={(e) => actions.updateCharacter(c.id, {
+                  arc: (c.arc ?? []).map((x, j) => (j === i ? { ...x, stage: e.target.value } : x)),
+                })}
+              />
+              <select
+                className="field"
+                value={a.chapterId ?? ''}
+                onChange={(e) => actions.updateCharacter(c.id, {
+                  arc: (c.arc ?? []).map((x, j) => (j === i ? { ...x, chapterId: e.target.value || undefined } : x)),
+                })}
+              >
+                <option value="">关联章…</option>
+                {allChs.map((ch) => (
+                  <option key={ch.id} value={ch.id}>{ch.title}</option>
+                ))}
+              </select>
+              <button className="icon-btn" title="删除阶段"
+                onClick={() => actions.updateCharacter(c.id, { arc: (c.arc ?? []).filter((_, j) => j !== i) })}>
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+            onClick={() => actions.updateCharacter(c.id, {
+              arc: [...(c.arc ?? []), { id: `arc_${Date.now()}_${(c.arc ?? []).length}`, stage: '' }],
+            })}>
+            + 添加阶段
+          </button>
+        </div>
+      )}
       <div className="ol-field" style={{ marginTop: 8 }}>
         <div className="lbl">综合备注</div>
         <textarea className="field ol-f" rows={2} value={c.desc} placeholder="其它备注…"
@@ -599,17 +654,34 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
 
 function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
   const state = useStore()
+  const [showGraph, setShowGraph] = useState(false)
   const all = state.characters.filter((c) => c.bookId === bookId)
   const kw = filter.trim()
   const list = kw ? all.filter((c) => `${c.name}${c.role}${c.desc}${(c.aliases ?? []).join('')}`.includes(kw)) : all
   const chapters = state.chapters.filter((c) => c.bookId === bookId)
   return (
     <div className="side-scroll">
-      <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索角色名 / 别名 / 定位…" />
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ flex: 1 }}>
+          <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索角色名 / 别名 / 定位…" />
+        </div>
+        <button className="btn btn-ghost" style={{ flex: '0 0 auto', marginBottom: 8 }} onClick={() => setShowGraph(true)}>
+          关系图
+        </button>
+      </div>
       {list.length === 0 && <Empty text={kw ? '没有匹配的角色' : '还没有角色，点击下方新增'} />}
       {list.map((c) => (
         <CharacterCard key={c.id} c={c} appear={chapters.filter((ch) => ch.cast.includes(c.id))} />
       ))}
+      {showGraph && (
+        <RelationGraph
+          chars={all}
+          onClose={() => setShowGraph(false)}
+          onJump={(id) =>
+            document.getElementById(`char-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        />
+      )}
     </div>
   )
 }
@@ -621,6 +693,7 @@ function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filte
   const list = kw ? all.filter((i) => `${i.name}${i.desc}${i.status ?? ''}`.includes(kw)) : all
   const chapters = state.chapters.filter((c) => c.bookId === bookId)
   const cats = Object.keys(CATEGORY_META) as SettingCategory[]
+  const fss = state.foreshadows.filter((x) => x.bookId === bookId)
   return (
     <div className="side-scroll">
       <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索设定名 / 描述 / 状态…" />
@@ -660,6 +733,17 @@ function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filte
                       )}
                     </div>
                   )}
+                  {(() => {
+                    const rel = fss.filter((f) => (f.settingIds ?? []).includes(it.id))
+                    return rel.length > 0 ? (
+                      <div className="fs-appear" style={{ marginTop: 6 }}>
+                        <span className="fs-link-label">伏笔</span>
+                        {rel.map((f) => (
+                          <span key={f.id} className="ol-chip" title={f.title}>{f.title}</span>
+                        ))}
+                      </div>
+                    ) : null
+                  })()}
                   <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={2}
                     value={it.desc} placeholder="设定描述…"
                     onChange={(e) => actions.updateSetting(it.id, { desc: e.target.value })} />
@@ -685,6 +769,7 @@ function ForeshadowTab({ bookId, filter, onFilterChange }: { bookId: string; fil
     .sort((a, b) => (volOrder.get(a.volumeId) ?? 0) - (volOrder.get(b.volumeId) ?? 0) || a.order - b.order)
   const idx = new Map(chapters.map((c, i) => [c.id, i] as [ID, number]))
   const chars = state.characters.filter((c) => c.bookId === bookId)
+  const sets = state.settings.filter((s) => s.bookId === bookId)
 
   const timeline = chapters
     .map((c) => ({
@@ -791,6 +876,22 @@ function ForeshadowTab({ bookId, filter, onFilterChange }: { bookId: string; fil
                   })}
                 >
                   {ch.name}
+                </button>
+              ))}
+            </div>
+            <div className="fs-appear" style={{ marginTop: 6 }}>
+              <span className="fs-link-label">设定</span>
+              {sets.map((s) => (
+                <button
+                  key={s.id}
+                  className={`ol-chip ${(f.settingIds ?? []).includes(s.id) ? 'sel' : ''}`}
+                  onClick={() => actions.updateForeshadow(f.id, {
+                    settingIds: (f.settingIds ?? []).includes(s.id)
+                      ? (f.settingIds ?? []).filter((x) => x !== s.id)
+                      : [...(f.settingIds ?? []), s.id],
+                  })}
+                >
+                  {s.name}
                 </button>
               ))}
             </div>

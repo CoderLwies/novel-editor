@@ -257,6 +257,20 @@ export function consistencyCheck(state: AppState, bookId: ID): CheckIssue[] {
     }
   }
 
+  let prevDay: { day: number; title: string } | null = null
+  for (const c of sorted) {
+    if (typeof c.storyDay === 'number' && !Number.isNaN(c.storyDay)) {
+      if (prevDay && c.storyDay < prevDay.day) {
+        issues.push({
+          level: 'warn',
+          chapterId: c.id,
+          text: `《${c.title}》故事时间（第 ${c.storyDay} 天）早于前一标记章《${prevDay.title}》（第 ${prevDay.day} 天），顺序可能颠倒`,
+        })
+      }
+      prevDay = { day: c.storyDay, title: c.title }
+    }
+  }
+
   for (const v of state.volumes.filter((v) => v.bookId === bookId)) {
     if (!chs.some((c) => c.volumeId === v.id)) {
       issues.push({ level: 'info', text: `《${v.title}》还是空卷，没有章节` })
