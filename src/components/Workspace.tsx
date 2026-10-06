@@ -16,6 +16,8 @@ import StatsBar from './StatsBar'
 import FileMenu from './FileMenu'
 import { AiSettingsModal } from './AiModals'
 import SearchModal from './SearchModal'
+import Modal from './Modal'
+import { onUpdaterStatus, installUpdate, updaterText } from '../updater'
 
 export default function Workspace({ book }: { book: Book }) {
   const state = useStore()
@@ -28,6 +30,14 @@ export default function Workspace({ book }: { book: Book }) {
   const [focusMode, setFocusMode] = useState(false)
   const [diskSync, setDiskSync] = useState<'idle' | 'syncing' | 'synced'>('idle')
   const [toast, setToast] = useState<string | null>(null)
+  const [showInstall, setShowInstall] = useState(false)
+
+  useEffect(() => {
+    return onUpdaterStatus((s) => {
+      setToast(updaterText(s))
+      if (s.kind === 'downloaded') setShowInstall(true)
+    })
+  }, [])
 
   const volumes = useMemo(() => volumesOf(state, book.id), [state, book.id])
 
@@ -191,6 +201,21 @@ export default function Workspace({ book }: { book: Book }) {
       <StatsBar book={book} chapter={currentChapter} />
       {showAi && <AiSettingsModal onClose={() => setShowAi(false)} />}
       {showSearch && <SearchModal book={book} onClose={() => setShowSearch(false)} />}
+      {showInstall && (
+        <Modal
+          title="更新已就绪"
+          onClose={() => setShowInstall(false)}
+          width={420}
+          foot={
+            <>
+              <button className="btn btn-ghost" onClick={() => setShowInstall(false)}>稍后</button>
+              <button className="btn btn-primary" onClick={() => void installUpdate()}>重启并安装</button>
+            </>
+          }
+        >
+          <div className="hint">新版本已下载完成，重启应用后自动安装。</div>
+        </Modal>
+      )}
       {toast && <div className="toast">{toast}</div>}
     </div>
   )

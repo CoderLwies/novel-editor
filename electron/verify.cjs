@@ -81,6 +81,11 @@ ipcMain.handle('dialog:openFile', async (_e, filters) => {
   return r.canceled ? null : r.filePaths[0]
 })
 ipcMain.handle('dialog:saveFile', async () => stubSavePath)
+ipcMain.handle('updater:check', async () => {
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('updater:status', { kind: 'disabled' })
+  return true
+})
+ipcMain.handle('updater:install', async () => false)
 
 async function main() {
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
@@ -593,6 +598,14 @@ async function main() {
     stSnap.snapshots.some((sp) => stSnap.chapters.some((c) => c.bookId === b.id && c.id === sp.chapterId)),
   )
   console.log('E2E snapshot disk -> history entries:', histCount, '| readback after reimport:', snapBack)
+
+  // 14) 自动更新：dev 模式检查更新降级提示
+  await js(`document.querySelector('.filemenu > button')?.click()`)
+  await sleep(300)
+  await js(`[...document.querySelectorAll('.menu-item')].find(b=>b.textContent.includes('检查更新'))?.click()`)
+  await sleep(600)
+  const updToast = await js(`document.querySelector('.toast')?.textContent ?? ''`)
+  console.log('E2E updater -> dev disabled toast:', updToast.includes('开发模式'))
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

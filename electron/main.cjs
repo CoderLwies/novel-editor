@@ -4,6 +4,11 @@ const fsp = require('fs').promises
 const fsSync = require('fs')
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL
+const { autoUpdater } = require('electron-updater')
+
+function sendUpdaterStatus(status) {
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('updater:status', status)
+}
 
 /* ------------------------- 文件系统 IPC 桥 ------------------------- */
 
@@ -80,10 +85,42 @@ function createWindow() {
   }
 }
 
+if (app.isPackaged) {
+  autoUpdater.on('checking-for-update', () => sendUpdaterStatus({ kind: 'checking' }))
+  autoUpdater.on('update-available', (info) => sendUpdaterStatus({ kind: 'available', version: info.version }))
+  autoUpdater.on('update-not-available', () => sendUpdaterStatus({ kind: 'uptodate' }))
+  autoUpdater.on('download-progress', (p) => sendUpdaterStatus({ kind: 'progress', percent: Math.round(p.percent) }))
+  autoUpdater.on('update-downloaded', () => sendUpdaterStatus({ kind: 'downloaded' }))
+  autoUpdater.on('error', (e) => sendUpdaterStatus({ kind: 'error', message: String((e && e.message) || e) }))
+  ipcMain.handle('updater:check', async () => {
+    try {
+      await autoUpdater.checkForUpdates()
+    } catch (e) {
+      sendUpdaterStatus({ kind: 'error', message: e.message })
+    }
+    return true
+  })
+  ipcMain.handle('updater:install', () => {
+    autoUpdater.quitAndInstall()
+    return true
+  })
+} else {
+  ipcMain.handle('updater:check', async () => {
+    sendUpdaterStatus({ kind: 'disabled' })
+    return true
+  })
+  ipcMain.handle('updater:install', async () => false)
+}
+
 app.whenReady().then(() => {
   // 原型阶段隐藏默认菜单栏，保持沉浸写作界面
   Menu.setApplicationMenu(null)
   createWindow()
+  if (app.isPackaged) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(() => {})
+    }, 6000)
+  }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

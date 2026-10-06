@@ -23,3 +23,13 @@ contextBridge.exposeInMainWorld('fsAPI', {
   openFile: (filters) => ipcRenderer.invoke('dialog:openFile', filters),
   saveFile: (opts) => ipcRenderer.invoke('dialog:saveFile', opts),
 })
+
+contextBridge.exposeInMainWorld('updaterAPI', {
+  check: () => ipcRenderer.invoke('updater:check'),
+  install: () => ipcRenderer.invoke('updater:install'),
+  onStatus: (cb) => {
+    const handler = (_e, s) => cb(s)
+    ipcRenderer.on('updater:status', handler)
+    return () => ipcRenderer.removeListener('updater:status', handler)
+  },
+})

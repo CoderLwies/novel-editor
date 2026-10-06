@@ -5,6 +5,7 @@ import type { Book as BookType } from '../types'
 import { pickDirectory, saveTextFile, saveBinaryFile, supportsProjectFolders } from '../fs'
 import { writeProjectToDir, exportBookTxt, exportBookMd, exportOutlineMd, exportSettingsMd, exportForeshadowMd, sanitizeFilename } from '../project'
 import { buildEpub } from '../epub'
+import { checkUpdate } from '../updater'
 
 export default function FileMenu({ book }: { book: BookType }) {
   const state = useStore()
@@ -180,6 +181,9 @@ export default function FileMenu({ book }: { book: BookType }) {
           <div className="menu-sep" />
           <button className="menu-item" onClick={exportEpub}>
             <Book size={15} /> 导出 EPUB 电子书
+          </button>
+          <button className="menu-item" onClick={() => { setOpen(false); void checkUpdate() }}>
+            <RefreshCw size={15} /> 检查更新
           </button>
         </div>
       )}
