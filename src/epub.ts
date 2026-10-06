@@ -1,4 +1,3 @@
-import JSZip from 'jszip'
 import type { AppState, ID } from './types'
 
 function esc(s: string): string {
@@ -34,6 +33,8 @@ interface EpubItem {
 
 /** 生成标准 EPUB3 包（mimetype 无压缩首条目 + container + OPF + nav/ncx + 各章 XHTML） */
 export async function buildEpub(state: AppState, bookId: ID): Promise<Uint8Array> {
+  // 懒加载 jszip：仅导出 EPUB 时拉取该 chunk，避免计入首屏主包
+  const { default: JSZip } = await import('jszip')
   const book = state.books.find((b) => b.id === bookId)
   if (!book) throw new Error('作品不存在')
   const volumes = state.volumes.filter((v) => v.bookId === bookId).sort((a, b) => a.order - b.order)

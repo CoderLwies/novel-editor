@@ -48,6 +48,8 @@ Electron 桌面应用 · React + Vite + TypeScript · 无后端，数据保存�
 
 ### 分发
 - Windows NSIS 安装包：简体中文界面、安装时自选目录、嵌入应用图标
+- 自动更新：electron-updater（generic provider；部署时把 `build.publish` 的 url 替换为自有更新服务器）。文件菜单「检查更新」，启动后亦自动检查；下载完成提示重启安装
+- 首包瘦身：jszip 等重依赖动态 import，仅导出 EPUB 时加载
 
 ---
 
@@ -167,7 +169,7 @@ foreshadowPayoffs: [fs_2]
 
 ## 路线图
 
-- [ ] 代码签名与自动更新（electron-updater）
+- [ ] 代码签名（消除 SmartScreen 警告）
 - [ ] 大书状态分片或 IndexedDB；章节树/大纲表虚拟化
 - [ ] 应用内帮助页
 - [ ] 角色成长弧线、关系图可视化、AI 角色卡补全
