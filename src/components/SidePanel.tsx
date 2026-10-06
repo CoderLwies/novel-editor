@@ -27,11 +27,15 @@ export default function SidePanel({
   chapter,
   tab,
   onTabChange,
+  filter,
+  onFilterChange,
 }: {
   book: Book
   chapter?: Chapter
   tab: SideTab
   onTabChange: (t: SideTab) => void
+  filter: string
+  onFilterChange: (v: string) => void
 }) {
   const tabs: { key: SideTab; label: string }[] = [
     { key: 'outline', label: '大纲' },
@@ -51,9 +55,9 @@ export default function SidePanel({
       </div>
 
       {tab === 'outline' && <OutlineTab book={book} chapter={chapter} />}
-      {tab === 'characters' && <CharactersTab bookId={book.id} />}
-      {tab === 'settings' && <SettingsTab bookId={book.id} />}
-      {tab === 'foreshadow' && <ForeshadowTab bookId={book.id} />}
+      {tab === 'characters' && <CharactersTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
+      {tab === 'settings' && <SettingsTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
+      {tab === 'foreshadow' && <ForeshadowTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
 
       <div className="side-add">
         {tab === 'characters' && (
@@ -524,16 +528,15 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
   )
 }
 
-function CharactersTab({ bookId }: { bookId: string }) {
+function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
   const state = useStore()
-  const [q, setQ] = useState('')
   const all = state.characters.filter((c) => c.bookId === bookId)
-  const kw = q.trim()
+  const kw = filter.trim()
   const list = kw ? all.filter((c) => `${c.name}${c.role}${c.desc}${(c.aliases ?? []).join('')}`.includes(kw)) : all
   const chapters = state.chapters.filter((c) => c.bookId === bookId)
   return (
     <div className="side-scroll">
-      <FilterBox value={q} onChange={setQ} placeholder="搜索角色名 / 别名 / 定位…" />
+      <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索角色名 / 别名 / 定位…" />
       {list.length === 0 && <Empty text={kw ? '没有匹配的角色' : '还没有角色，点击下方新增'} />}
       {list.map((c) => (
         <CharacterCard key={c.id} c={c} appear={chapters.filter((ch) => ch.cast.includes(c.id))} />
@@ -542,17 +545,16 @@ function CharactersTab({ bookId }: { bookId: string }) {
   )
 }
 
-function SettingsTab({ bookId }: { bookId: string }) {
+function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
   const state = useStore()
-  const [q, setQ] = useState('')
   const all = state.settings.filter((c) => c.bookId === bookId)
-  const kw = q.trim()
+  const kw = filter.trim()
   const list = kw ? all.filter((i) => `${i.name}${i.desc}${i.status ?? ''}`.includes(kw)) : all
   const chapters = state.chapters.filter((c) => c.bookId === bookId)
   const cats = Object.keys(CATEGORY_META) as SettingCategory[]
   return (
     <div className="side-scroll">
-      <FilterBox value={q} onChange={setQ} placeholder="搜索设定名 / 描述 / 状态…" />
+      <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索设定名 / 描述 / 状态…" />
       {list.length === 0 && <Empty text={kw ? '没有匹配的设定' : '还没有设定，点击下方新增'} />}
       {cats.map((cat) => {
         const items = list.filter((i) => i.category === cat)
@@ -602,11 +604,10 @@ function SettingsTab({ bookId }: { bookId: string }) {
   )
 }
 
-function ForeshadowTab({ bookId }: { bookId: string }) {
+function ForeshadowTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
   const state = useStore()
-  const [q, setQ] = useState('')
   const all = state.foreshadows.filter((c) => c.bookId === bookId)
-  const kw = q.trim()
+  const kw = filter.trim()
   const list = kw ? all.filter((f) => `${f.title}${f.detail}`.includes(kw)) : all
   const volumes = volumesOf(state, bookId)
   const volOrder = new Map(volumes.map((v, i) => [v.id, i] as [ID, number]))
@@ -626,7 +627,7 @@ function ForeshadowTab({ bookId }: { bookId: string }) {
 
   return (
     <div className="side-scroll">
-      <FilterBox value={q} onChange={setQ} placeholder="搜索伏笔标题 / 内容…" />
+      <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索伏笔标题 / 内容…" />
       <div className="side-section-label">埋 / 收时间线</div>
       {timeline.length === 0 && <Empty text="还没有伏笔挂接，去大纲 tab 给章节挂埋/收" />}
       {timeline.map((r) => (

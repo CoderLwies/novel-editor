@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import {
   ChevronLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
-  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus,
+  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus, Command, HelpCircle,
 } from 'lucide-react'
 import { useStore, actions, volumesOf } from '../store'
 import type { Book, Chapter } from '../types'
@@ -16,6 +16,8 @@ import StatsBar from './StatsBar'
 import FileMenu from './FileMenu'
 import { AiSettingsModal } from './AiModals'
 import SearchModal from './SearchModal'
+import UnifiedSearch from './UnifiedSearch'
+import HelpModal from './HelpModal'
 import Modal from './Modal'
 import { onUpdaterStatus, installUpdate, updaterText } from '../updater'
 
@@ -27,6 +29,9 @@ export default function Workspace({ book }: { book: Book }) {
   const [mode, setMode] = useState<'write' | 'outline'>('write')
   const [showAi, setShowAi] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const [showPalette, setShowPalette] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [sideFilter, setSideFilter] = useState('')
   const [focusMode, setFocusMode] = useState(false)
   const [diskSync, setDiskSync] = useState<'idle' | 'syncing' | 'synced'>('idle')
   const [toast, setToast] = useState<string | null>(null)
@@ -37,6 +42,18 @@ export default function Workspace({ book }: { book: Book }) {
       setToast(updaterText(s))
       if (s.kind === 'downloaded') setShowInstall(true)
     })
+  }, [])
+
+  // Ctrl+K 打开统一搜索
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setShowPalette(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   const volumes = useMemo(() => volumesOf(state, book.id), [state, book.id])
@@ -138,6 +155,12 @@ export default function Workspace({ book }: { book: Book }) {
         <button className="icon-btn square" title="全文搜索 / 替换" onClick={() => setShowSearch(true)}>
           <Search size={17} />
         </button>
+        <button className="icon-btn square" title="统一搜索 (Ctrl+K)" onClick={() => setShowPalette(true)}>
+          <Command size={17} />
+        </button>
+        <button className="icon-btn square" title="帮助与快捷键" onClick={() => setShowHelp(true)}>
+          <HelpCircle size={17} />
+        </button>
         <button
           className={`icon-btn square ${focusMode ? 'active' : ''}`}
           title={focusMode ? '退出专注模式' : '专注模式（隐藏目录与侧栏）'}
@@ -194,13 +217,32 @@ export default function Workspace({ book }: { book: Book }) {
           <Editor chapter={currentChapter} fontSize={fontSize} focus={focusMode} typewriter={focusMode} />
         )}
         {showSide && !focusMode && (
-          <SidePanel book={book} chapter={currentChapter} tab={sideTab} onTabChange={setSideTab} />
+          <SidePanel
+            book={book}
+            chapter={currentChapter}
+            tab={sideTab}
+            onTabChange={setSideTab}
+            filter={sideFilter}
+            onFilterChange={setSideFilter}
+          />
         )}
       </div>
 
       <StatsBar book={book} chapter={currentChapter} />
       {showAi && <AiSettingsModal onClose={() => setShowAi(false)} />}
       {showSearch && <SearchModal book={book} onClose={() => setShowSearch(false)} />}
+      {showPalette && (
+        <UnifiedSearch
+          book={book}
+          onClose={() => setShowPalette(false)}
+          onPickSide={(tab, name) => {
+            setSideTab(tab)
+            setSideFilter(name)
+            setShowSide(true)
+          }}
+        />
+      )}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showInstall && (
         <Modal
           title="更新已就绪"

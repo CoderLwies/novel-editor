@@ -120,6 +120,8 @@ export interface UIState {
   lastChapterId: ID | null
   jump: JumpTarget | null
   lastGoalToastDate: string
+  /** 是否已完成新手引导 */
+  onboarded?: boolean
 }
 
 export interface ChapterSnapshot {

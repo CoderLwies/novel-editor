@@ -77,7 +77,7 @@ export function migrate(raw: AppState): AppState {
     chapters,
     foreshadows,
     snapshots: raw.snapshots ?? [],
-    ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '' },
+    ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '', onboarded: raw.ui.onboarded ?? true },
     // 模型固定为 deepseek-flash；baseUrl 沿用用户已填值，否则回落到官方端点
     ai: {
       baseUrl: ai?.baseUrl?.trim() ? ai.baseUrl : DEFAULT_AI_BASE_URL,
@@ -418,6 +418,9 @@ export const actions = {
   },
   setGoalToastDate(d: string) {
     set((s) => ({ ...s, ui: { ...s.ui, lastGoalToastDate: d } }))
+  },
+  setOnboarded(v: boolean) {
+    set((s) => ({ ...s, ui: { ...s.ui, onboarded: v } }))
   },
   syncForeshadowStatus(fsId: ID) {
     set((s) => {

@@ -6,6 +6,7 @@ import { formatNumber } from '../utils'
 import { pickDirectory, openTextFile, supportsProjectFolders } from '../fs'
 import { readProjectFromDir, isProjectDir, parseSingleText, projectWordCount } from '../project'
 import NewBookModal from './NewBookModal'
+import OnboardModal from './OnboardModal'
 
 const STATUS_LABEL: Record<Book['status'], string> = {
   ongoing: '连载中',
@@ -157,6 +158,7 @@ export default function Bookshelf() {
       </div>
 
       {showNew && <NewBookModal onClose={() => setShowNew(false)} />}
+      {state.ui.onboarded === false && <OnboardModal />}
 
       <div style={{ marginTop: 40, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-faint)', fontSize: 12 }}>
         <Feather size={14} />

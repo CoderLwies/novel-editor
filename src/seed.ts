@@ -324,6 +324,7 @@ export function createSeedState(): AppState {
       lastChapterId: 'ch_3',
       jump: null,
       lastGoalToastDate: '',
+      onboarded: false,
     },
     ai: { ...DEFAULT_AI_CONFIG },
     snapshots: [],

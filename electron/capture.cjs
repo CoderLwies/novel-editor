@@ -25,6 +25,10 @@ async function main() {
   await win.reload()
   await sleep(1500)
 
+  // 新手引导跳过，保持截图为常规界面
+  await win.webContents.executeJavaScript(`[...document.querySelectorAll('.modal .btn')].find(b=>b.textContent.includes('跳过'))?.click()`)
+  await sleep(300)
+
   // 启动恒落书架：点入第一本书以截工作台
   await win.webContents.executeJavaScript(`document.querySelector('.book-card')?.click()`)
   await sleep(700)

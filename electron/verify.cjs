@@ -104,6 +104,9 @@ async function main() {
   await win.reload()
   await sleep(1400)
   const js = (code) => win.webContents.executeJavaScript(code)
+  // 新手引导（首次 seed 未 onboarded）跳过，避免遮挡后续断言
+  await js(`[...document.querySelectorAll('.modal .btn')].find(b=>b.textContent.includes('跳过'))?.click()`)
+  await sleep(300)
   const shot = async (name) => {
     fs.writeFileSync(path.join(outDir, name), (await win.webContents.capturePage()).toPNG())
     console.log('saved', name)
@@ -452,6 +455,14 @@ async function main() {
   const cardsFiltered = await js(`document.querySelectorAll('.side .card').length`)
   console.log('E2E settings P1 -> cast chips:', castChips, '| status inputs:', statusInputs,
     '| setting appear chips:', setAppear, '| filter cards:', cardsBefore, '->', cardsFiltered)
+  // 侧栏过滤词为全局受控，清空以免影响后续 tab 断言
+  await js(`(() => {
+    const inp = document.querySelector('.side .side-scroll input.field')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(inp, '')
+    inp.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  await sleep(300)
 
   // 9) P0 角色卡：状态 / 别名 / 折叠详细字段
   await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='角色').click()`)
@@ -606,6 +617,34 @@ async function main() {
   await sleep(600)
   const updToast = await js(`document.querySelector('.toast')?.textContent ?? ''`)
   console.log('E2E updater -> dev disabled toast:', updToast.includes('开发模式'))
+
+  // 15) 统一搜索 Ctrl+K + 侧栏联动 + 帮助页
+  await js(`document.querySelector('button[title="返回书架"]').click()`)
+  await sleep(500)
+  await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('混沌神尊'))?.click()`)
+  await sleep(700)
+  await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))`)
+  await sleep(400)
+  const paletteOpen = await js(`!!document.querySelector('.modal')`)
+  await js(`(() => {
+    const inp = document.querySelector('.modal input.field')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(inp, '林尘')
+    inp.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  await sleep(400)
+  await js(`[...document.querySelectorAll('.modal .ai-item-body')].find(b=>b.textContent.trim().startsWith('林尘'))?.click()`)
+  await sleep(500)
+  const sideFilterVal = await js(`document.querySelector('.side .side-scroll input.field')?.value`)
+  const sideTabActive = await js(`document.querySelector('.side-tab.active')?.textContent`)
+  await js(`document.querySelector('button[title="帮助与快捷键"]').click()`)
+  await sleep(400)
+  const helpOk = await js(`document.querySelector('.modal')?.textContent.includes('快捷键') ?? false`)
+  await shot('20-help.png')
+  await js(`document.querySelector('.modal-head .icon-btn')?.click()`)
+  await sleep(300)
+  console.log('E2E unified search -> palette:', paletteOpen, '| side filter:', sideFilterVal,
+    '| tab:', sideTabActive, '| help:', helpOk)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
