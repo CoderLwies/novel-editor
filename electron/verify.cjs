@@ -730,6 +730,25 @@ async function main() {
   await js(`document.querySelector('.modal-head .icon-btn')?.click()`)
   console.log('E2E block4 -> arc:', arcCount, '| graph nodes:', graphNodes, '| fs settingIds:', fsSetting, '| storyday issue:', dayIssue)
 
+  // 18) 设定手动挂接：章纲 chips + 设定卡反向挂接
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='大纲').click()`)
+  await sleep(400)
+  await js(`(() => {
+    const w = [...document.querySelectorAll('.ol-ch')].find(x=>x.querySelector('.ol-ch-title')?.textContent.includes('第一章'))
+    if (w && !w.classList.contains('open')) w.querySelector('.ol-ch-head').click()
+  })()`)
+  await sleep(300)
+  await js(`(() => {
+    const lbl = [...document.querySelectorAll('.ol-chips-block .lbl')].find(l=>l.textContent.includes('本章挂接设定'))
+    lbl?.parentElement?.querySelector('.ol-chip')?.click()
+  })()`)
+  await sleep(500)
+  const hooked = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).chapters.find(c=>c.title.includes('第一章'))?.settingIds?.length`)
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='设定').click()`)
+  await sleep(400)
+  const hookChips = await js(`[...document.querySelectorAll('.side .fs-link-label')].filter(l=>l.textContent==='挂接').length`)
+  console.log('E2E setting hook -> chapter settingIds:', hooked, '| setting hooked chips:', hookChips)
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()

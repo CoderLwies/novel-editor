@@ -35,6 +35,7 @@ export interface ChapterMeta {
   cast?: ID[]
   foreshadowIds?: ID[]
   foreshadowPayoffs?: ID[]
+  settingIds?: ID[]
   outlineStatus?: OutlineStatus
 }
 
@@ -103,6 +104,7 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
       cast: c.cast,
       foreshadowIds: c.foreshadowIds,
       foreshadowPayoffs: c.foreshadowPayoffs,
+      settingIds: c.settingIds,
       outlineStatus: c.outlineStatus,
     })
     await fsLow.writeFile(
@@ -120,6 +122,7 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
         cast: c.cast,
         foreshadowIds: c.foreshadowIds,
         foreshadowPayoffs: c.foreshadowPayoffs,
+        settingIds: c.settingIds,
       }) + c.content,
     )
   }
@@ -188,6 +191,7 @@ export async function readProjectFromDir(dir: string): Promise<ProjectData> {
       cast: data.cast ?? meta.cast,
       foreshadowIds: data.foreshadowIds ?? meta.foreshadowIds,
       foreshadowPayoffs: data.foreshadowPayoffs ?? meta.foreshadowPayoffs ?? [],
+      settingIds: data.settingIds ?? meta.settingIds,
     })
   }
 

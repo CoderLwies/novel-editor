@@ -11,6 +11,7 @@ export interface FrontmatterData {
   cast?: string[]
   foreshadowIds?: string[]
   foreshadowPayoffs?: string[]
+  settingIds?: string[]
 }
 
 function encodeScalar(v: string): string {

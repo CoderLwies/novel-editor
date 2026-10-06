@@ -269,6 +269,12 @@ export function consistencyCheck(state: AppState, bookId: ID): CheckIssue[] {
       }
       prevDay = { day: c.storyDay, title: c.title }
     }
+    for (const sid of c.settingIds ?? []) {
+      const st = state.settings.find((x) => x.id === sid)
+      if (st && st.name && countWords(c.content) > 0 && !c.content.includes(st.name)) {
+        issues.push({ level: 'info', chapterId: c.id, text: `《${c.title}》手动挂接设定"${st.name}"但正文未出现其名` })
+      }
+    }
   }
 
   for (const v of state.volumes.filter((v) => v.bookId === bookId)) {

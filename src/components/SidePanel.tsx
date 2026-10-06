@@ -99,6 +99,7 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
   const [showAiSettings, setShowAiSettings] = useState(false)
   const castPool = state.characters.filter((c) => c.bookId === book.id)
   const fsPool = state.foreshadows.filter((f) => f.bookId === book.id)
+  const setPool = state.settings.filter((s) => s.bookId === book.id)
 
   const toggleVol = (id: ID) =>
     setOpenVols((prev) => {
@@ -108,12 +109,12 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
       return next
     })
 
-  const toggleRef = (ch: Chapter, key: 'cast' | 'foreshadowIds' | 'foreshadowPayoffs', id: ID) => {
-    const list = ch[key]
+  const toggleRef = (ch: Chapter, key: 'cast' | 'foreshadowIds' | 'foreshadowPayoffs' | 'settingIds', id: ID) => {
+    const list = ch[key] ?? []
     actions.updateChapter(ch.id, {
       [key]: list.includes(id) ? list.filter((x) => x !== id) : [...list, id],
     } as Partial<Chapter>)
-    if (key !== 'cast') actions.syncForeshadowStatus(id)
+    if (key === 'foreshadowIds' || key === 'foreshadowPayoffs') actions.syncForeshadowStatus(id)
   }
 
   return (
@@ -291,6 +292,22 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
                                     </button>
                                   )
                                 })}
+                              </div>
+                            </div>
+                          )}
+                          {setPool.length > 0 && (
+                            <div className="ol-chips-block">
+                              <div className="lbl">本章挂接设定</div>
+                              <div className="ol-chips">
+                                {setPool.map((p) => (
+                                  <button
+                                    key={p.id}
+                                    className={`ol-chip ${(c.settingIds ?? []).includes(p.id) ? 'sel' : ''}`}
+                                    onClick={() => toggleRef(c, 'settingIds', p.id)}
+                                  >
+                                    {p.name}
+                                  </button>
+                                ))}
                               </div>
                             </div>
                           )}
@@ -740,6 +757,19 @@ function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filte
                         <span className="fs-link-label">伏笔</span>
                         {rel.map((f) => (
                           <span key={f.id} className="ol-chip" title={f.title}>{f.title}</span>
+                        ))}
+                      </div>
+                    ) : null
+                  })()}
+                  {(() => {
+                    const hooked = chapters.filter((ch) => (ch.settingIds ?? []).includes(it.id))
+                    return hooked.length > 0 ? (
+                      <div className="fs-appear" style={{ marginTop: 6 }}>
+                        <span className="fs-link-label">挂接</span>
+                        {hooked.map((ch) => (
+                          <button key={ch.id} className="ol-chip sel" onClick={() => actions.selectChapter(ch.id)} title="跳转到该章">
+                            {ch.title}
+                          </button>
                         ))}
                       </div>
                     ) : null

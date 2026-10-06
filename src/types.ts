@@ -62,6 +62,8 @@ export interface Chapter {
   foreshadowPayoffs: ID[]
   /** 章纲：故事内时间（第 N 天），留空表示不标记 */
   storyDay?: number
+  /** 章纲：手动挂接的设定 id（与名称命中自动索引互补） */
+  settingIds?: ID[]
   /** 章纲进度 */
   outlineStatus: OutlineStatus
   createdAt: number
