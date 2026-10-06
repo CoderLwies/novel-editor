@@ -49,6 +49,8 @@ function startFakeAi() {
           payload = { text: '润色E2E' }
         } else if (body.includes('网文编辑视角审查')) {
           payload = { issues: ['节奏偏慢E2E'] }
+        } else if (body.includes('口头禅或语言习惯')) {
+          payload = { appearance: 'AI外貌E2E', personality: 'AI性格E2E', speech: 'AI口头禅E2E' }
         } else {
           payload = { ok: true }
         }
@@ -645,6 +647,30 @@ async function main() {
   await sleep(300)
   console.log('E2E unified search -> palette:', paletteOpen, '| side filter:', sideFilterVal,
     '| tab:', sideTabActive, '| help:', helpOk)
+
+  // 16) AI 角色卡补全：草稿弹窗 + 填入空缺
+  const aiSrv3 = await startFakeAi()
+  const port3 = aiSrv3.address().port
+  await js(`(() => {
+    const K = 'zizhou-state-v1'
+    const s = JSON.parse(localStorage.getItem(K))
+    s.ai = { baseUrl: 'http://127.0.0.1:${port3}', apiKey: '', model: 'deepseek-flash' }
+    localStorage.setItem(K, JSON.stringify(s))
+  })()`)
+  await win.reload()
+  await sleep(1400)
+  await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('混沌神尊'))?.click()`)
+  await sleep(700)
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='角色').click()`)
+  await sleep(400)
+  await js(`[...document.querySelectorAll('.side .card .icon-btn')].find(b=>(b.title||'').includes('AI 补全角色卡'))?.click()`)
+  await sleep(900)
+  const draftShown = await js(`document.querySelector('.modal')?.textContent.includes('AI 角色卡补全') ?? false`)
+  await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('填入空缺'))?.click()`)
+  await sleep(500)
+  const cardAi = await js(`(() => { const s = JSON.parse(localStorage.getItem('zizhou-state-v1')); const c = s.characters[0]; return { a: c.appearance, s: c.speech } })()`)
+  aiSrv3.close()
+  console.log('E2E char card ai -> draft:', draftShown, '| appearance:', cardAi.a, '| speech:', cardAi.s)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

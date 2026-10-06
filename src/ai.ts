@@ -111,6 +111,27 @@ export function writebackPrompt(book: Book, ch: Chapter): string {
   ].join('\n')
 }
 
+export interface GenCharacterCard {
+  appearance?: string
+  personality?: string
+  background?: string
+  motivation?: string
+  ability?: string
+  speech?: string
+}
+
+export function characterCardPrompt(book: Book, ch: Character, excerpts: string[]): string {
+  return [
+    `作品《${book.title}》角色"${ch.name}"${ch.role ? `（${ch.role}）` : ''}。`,
+    excerpts.length > 0
+      ? `该角色相关正文片段：\n"""${excerpts.join('\n---\n')}"""`
+      : '暂无正文片段，仅依据角色名与定位保守推断。',
+    '归纳该角色：appearance 外貌、personality 性格、background 背景身世、motivation 动机目标、ability 能力/功法、speech 口头禅或语言习惯。',
+    '仅依据正文，不得虚构正文没有的事实；无依据的字段留空字符串。',
+    'schema: {"appearance":"","personality":"","background":"","motivation":"","ability":"","speech":""}',
+  ].join('\n')
+}
+
 /** 角色名 + 别名，正文命中索引一并匹配 */
 export function charNames(c: Character): string[] {
   return [c.name, ...(c.aliases ?? [])].filter((n) => n && n.trim())

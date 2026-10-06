@@ -82,6 +82,8 @@ export interface Character {
   background?: string
   motivation?: string
   ability?: string
+  /** 口头禅 / 语言习惯 */
+  speech?: string
   /** 角色关系：目标角色 + 关系称谓 */
   relations?: { targetId: ID; relation: string }[]
 }

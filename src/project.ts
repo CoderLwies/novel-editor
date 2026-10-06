@@ -415,7 +415,7 @@ export function exportSettingsMd(state: AppState, bookId: ID): string {
     if (c.status) out.push(`- 状态：${c.status}`)
     const fields: [keyof Character, string][] = [
       ['appearance', '外貌'], ['personality', '性格'], ['background', '背景'],
-      ['motivation', '动机'], ['ability', '能力'],
+      ['motivation', '动机'], ['ability', '能力'], ['speech', '口头禅'],
     ]
     for (const [k, label] of fields) {
       const v = c[k]

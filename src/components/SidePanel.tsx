@@ -3,8 +3,9 @@ import { Plus, Trash2, User, Map as MapIcon, ScrollText, Swords, Package, Users,
 import { useStore, actions, volumesOf, chaptersOf } from '../store'
 import type { Book, Chapter, Character, CharacterState, SettingCategory, ForeshadowStatus, ForeshadowPriority, OutlineStatus, ID } from '../types'
 import { countWords, formatNumber } from '../utils'
-import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, type GenWriteback } from '../ai'
+import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, aiReady, characterCardPrompt, type GenWriteback, type GenCharacterCard } from '../ai'
 import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal } from './AiModals'
+import Modal from './Modal'
 
 export type SideTab = 'outline' | 'characters' | 'settings' | 'foreshadow'
 
@@ -387,12 +388,13 @@ const CHAR_STATE: Record<CharacterState, { label: string; color: string }> = {
   retired: { label: '退场', color: 'var(--text-faint)' },
 }
 
-const CHAR_FIELDS: { key: 'appearance' | 'personality' | 'background' | 'motivation' | 'ability'; label: string }[] = [
+const CHAR_FIELDS: { key: 'appearance' | 'personality' | 'background' | 'motivation' | 'ability' | 'speech'; label: string }[] = [
   { key: 'appearance', label: '外貌特征' },
   { key: 'personality', label: '性格' },
   { key: 'background', label: '背景身世' },
   { key: 'motivation', label: '动机目标' },
   { key: 'ability', label: '能力 / 功法' },
+  { key: 'speech', label: '口头禅 / 语言习惯' },
 ]
 
 function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
@@ -400,6 +402,42 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
   const state = useStore()
   const chars = state.characters.filter((x) => x.bookId === c.bookId)
   const relatedFs = state.foreshadows.filter((f) => f.bookId === c.bookId && (f.characterIds ?? []).includes(c.id))
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiDraft, setAiDraft] = useState<GenCharacterCard | null>(null)
+  const book = state.books.find((b) => b.id === c.bookId)
+
+  async function runCardAi() {
+    if (!book) return
+    setAiBusy(true)
+    setAiDraft(null)
+    try {
+      const srcChs = appear.length > 0
+        ? appear
+        : state.chapters.filter((ch) => ch.bookId === c.bookId && charNamesLocal.some((n) => ch.content.includes(n)))
+      const excerpts = srcChs.slice(0, 3).map((ch) => ch.content.slice(0, 1500)).filter(Boolean)
+      const r = await chatJSON<GenCharacterCard>(state.ai, SYS_PLANNER, characterCardPrompt(book, c, excerpts))
+      setAiDraft(r)
+    } catch (e) {
+      setAiDraft({ appearance: `失败：${(e as Error).message}` })
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  function applyDraft(mode: 'fill' | 'overwrite') {
+    if (!aiDraft) return
+    const draft = aiDraft as Record<string, string | undefined>
+    const patch: Partial<Character> = {}
+    for (const f of CHAR_FIELDS) {
+      const v = draft[f.key]
+      if (!v || !v.trim()) continue
+      if (mode === 'fill' && (c[f.key] ?? '').trim()) continue
+      patch[f.key] = v
+    }
+    actions.updateCharacter(c.id, patch)
+    setAiDraft(null)
+  }
+  const charNamesLocal = [c.name, ...(c.aliases ?? [])].filter((n) => n && n.trim())
   const filled = CHAR_FIELDS.filter((f) => (c[f.key] ?? '').trim()).length
   const st = CHAR_STATE[c.status ?? 'alive']
   return (
@@ -410,6 +448,9 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
         <input className="inline-edit" style={{ fontWeight: 600, fontSize: 13.5 }} value={c.name}
           onChange={(e) => actions.updateCharacter(c.id, { name: e.target.value })} />
         <span className="char-state-dot" style={{ background: st.color }} title={st.label} />
+        <button className="icon-btn" title="AI 补全角色卡" disabled={aiBusy || !aiReady(state.ai)} onClick={() => void runCardAi()}>
+          {aiBusy ? <Loader2 size={12} className="spin" /> : <Wand2 size={12} />}
+        </button>
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
         <input className="inline-edit" style={{ fontSize: 11.5, color: 'var(--accent)', flex: 1 }} value={c.role}
@@ -524,6 +565,34 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
         <textarea className="field ol-f" rows={2} value={c.desc} placeholder="其它备注…"
           onChange={(e) => actions.updateCharacter(c.id, { desc: e.target.value })} />
       </div>
+
+      {aiDraft && (
+        <Modal
+          title={`AI 角色卡补全 · ${c.name}`}
+          onClose={() => setAiDraft(null)}
+          width={560}
+          foot={
+            <>
+              <button className="btn btn-ghost" onClick={() => setAiDraft(null)}>取消</button>
+              <button className="btn btn-ghost" onClick={() => applyDraft('overwrite')}>覆盖采用</button>
+              <button className="btn btn-primary" onClick={() => applyDraft('fill')}>填入空缺</button>
+            </>
+          }
+        >
+          <div className="hint">填入空缺：只写角色卡尚空的字段；覆盖采用：以本页内容重写对应字段。可先编辑再采用。</div>
+          {CHAR_FIELDS.map((f) => (
+            <div className="ol-field" key={f.key}>
+              <div className="lbl">{f.label}</div>
+              <textarea
+                className="field ol-f"
+                rows={2}
+                value={(aiDraft as Record<string, string | undefined>)[f.key] ?? ''}
+                onChange={(e) => setAiDraft({ ...aiDraft, [f.key]: e.target.value })}
+              />
+            </div>
+          ))}
+        </Modal>
+      )}
     </div>
   )
 }
