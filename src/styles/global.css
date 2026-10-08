@@ -995,19 +995,46 @@ label.lbl {
   bottom: 56px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 24px;
-  padding: 9px 18px;
+  padding: 9px 12px 9px 18px;
   font-size: 13px;
   box-shadow: var(--shadow);
   z-index: 200;
   animation: pop 0.16s ease;
   max-width: 80vw;
+}
+
+.toast-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.toast-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim, var(--text));
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+.toast-close:hover {
+  opacity: 1;
+  background: var(--bg-hover, rgba(127, 127, 127, 0.18));
 }
 
 /* 新建弹窗 - 存储目录选择 */

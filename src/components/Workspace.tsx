@@ -1,7 +1,7 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import {
   ChevronLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
-  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus, Command, HelpCircle,
+  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus, Command, HelpCircle, X,
 } from 'lucide-react'
 import { useStore, actions, volumesOf } from '../store'
 import type { Book, Chapter } from '../types'
@@ -36,6 +36,21 @@ export default function Workspace({ book }: { book: Book }) {
   const [diskSync, setDiskSync] = useState<'idle' | 'syncing' | 'synced'>('idle')
   const [toast, setToast] = useState<string | null>(null)
   const [showInstall, setShowInstall] = useState(false)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showToast = useCallback((text: string, ms = 4000) => {
+    setToast(text)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), ms)
+  }, [])
+
+  const dismissToast = useCallback(() => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = null
+    setToast(null)
+  }, [])
+
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
   useEffect(() => {
     const last = { current: null as { text: string; at: number } | null }
@@ -45,10 +60,11 @@ export default function Workspace({ book }: { book: Book }) {
       // 同文本 10s 内去重：避免连发/周期事件反复重置 toast 计时导致不消失
       if (last.current && last.current.text === text && now - last.current.at < 10000) return
       last.current = { text, at: now }
-      setToast(text)
+      // 瞬时状态（如自动检查更新时的「正在检查…」）4s 后自动消失；下载进度事件会持续刷新
+      showToast(text, s.kind === 'downloaded' ? 6000 : 4000)
       if (s.kind === 'downloaded') setShowInstall(true)
     })
-  }, [])
+  }, [showToast])
 
   // Ctrl+K 打开统一搜索
   useEffect(() => {
@@ -105,10 +121,8 @@ export default function Workspace({ book }: { book: Book }) {
   useEffect(() => {
     if (todayWords < book.dailyGoal || state.ui.lastGoalToastDate === today) return
     actions.setGoalToastDate(today)
-    setToast(`今日已写 ${formatNumber(todayWords)} 字，达成日更目标 ${formatNumber(book.dailyGoal)} 字`)
-    const t = setTimeout(() => setToast(null), 5000)
-    return () => clearTimeout(t)
-  }, [todayWords, book.dailyGoal, today, state.ui.lastGoalToastDate])
+    showToast(`今日已写 ${formatNumber(todayWords)} 字，达成日更目标 ${formatNumber(book.dailyGoal)} 字`, 5000)
+  }, [todayWords, book.dailyGoal, today, state.ui.lastGoalToastDate, showToast])
 
   return (
     <div className={`workspace ${focusMode ? 'focus' : ''}`}>
@@ -264,7 +278,14 @@ export default function Workspace({ book }: { book: Book }) {
           <div className="hint">新版本已下载完成，重启应用后自动安装。</div>
         </Modal>
       )}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast">
+          <span className="toast-text">{toast}</span>
+          <button className="toast-close" onClick={dismissToast} title="关闭" aria-label="关闭提示">
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
