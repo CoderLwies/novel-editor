@@ -127,6 +127,18 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
     )
   }
 
+  // 清理重命名/重排/删章后残留的旧章节文件，仅限本目录生成的 NNNN_*.md
+  const expectedFiles = new Set(chaptersMeta.map((m) => m.file))
+  try {
+    for (const en of await fsLow.readdir(joinPath(dir, 'chapters'))) {
+      if (!en.isDir && /^\d{4}_.*\.md$/i.test(en.name) && !expectedFiles.has(en.name)) {
+        await fsLow.unlink(joinPath(dir, 'chapters', en.name))
+      }
+    }
+  } catch {
+    /* 目录不可读时跳过清理 */
+  }
+
   const historyDir = joinPath(dir, 'history')
   await fsLow.mkdirp(historyDir)
   const chIds = new Set(chaptersMeta.map((m) => m.id))

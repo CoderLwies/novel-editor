@@ -133,7 +133,7 @@ export function AiSplitModal({
     return () => {
       alive = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 仅在挂载时发起一次请求，book/vol 等由父组件传入且弹窗期间不变
   }, [])
 
   function apply() {
@@ -226,7 +226,7 @@ export function AiBranchModal({
     return () => {
       alive = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 仅在挂载时发起一次请求，book/vol 等由父组件传入且弹窗期间不变
   }, [])
 
   function adopt(b: GenBranch) {
@@ -291,7 +291,7 @@ export function AiGenSettingsModal({
     return () => {
       alive = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 仅在挂载时发起一次请求，book/vol 等由父组件传入且弹窗期间不变
   }, [])
 
   function apply() {

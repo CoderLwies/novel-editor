@@ -52,28 +52,41 @@ export function parseJsonLoose(text: string): unknown {
   return JSON.parse(t.slice(start, end + 1))
 }
 
-export async function chatJSON<T>(config: AIConfig, system: string, user: string): Promise<T> {
+export const AI_TIMEOUT_MS = 30000
+
+export async function chatJSON<T>(config: AIConfig, system: string, user: string, timeoutMs = AI_TIMEOUT_MS): Promise<T> {
   const url = `${config.baseUrl.trim().replace(/\/+$/, '')}/chat/completions`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model: config.model,
-      temperature: 0.7,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    }),
-  })
-  if (!res.ok) throw new Error(`AI 接口返回 ${res.status}`)
-  const data = await res.json()
-  const text: string = data?.choices?.[0]?.message?.content ?? ''
-  if (!text.trim()) throw new Error('AI 返回空内容')
-  return parseJsonLoose(text) as T
+  // 超时兜底：接口挂起时不至于让所有弹窗一直 loading
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.7,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+      }),
+      signal: ctrl.signal,
+    })
+    if (!res.ok) throw new Error(`AI 接口返回 ${res.status}`)
+    const data = await res.json()
+    const text: string = data?.choices?.[0]?.message?.content ?? ''
+    if (!text.trim()) throw new Error('AI 返回空内容')
+    return parseJsonLoose(text) as T
+  } catch (e) {
+    if (ctrl.signal.aborted) throw new Error(`AI 接口超时（${Math.round(timeoutMs / 1000)}s）`)
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export const SYS_PLANNER = '你是网文连载的outline策划，只输出符合 schema 的 JSON，不要任何解释或代码块。'
@@ -251,7 +264,12 @@ export function consistencyCheck(state: AppState, bookId: ID): CheckIssue[] {
     }
   }
 
-  const volOrder = new Map(state.volumes.filter((v) => v.bookId === bookId).map((v, i) => [v.id, i]))
+  const volOrder = new Map(
+    state.volumes
+      .filter((v) => v.bookId === bookId)
+      .sort((a, b) => a.order - b.order)
+      .map((v, i) => [v.id, i]),
+  )
   const sorted = [...chs].sort(
     (a, b) => (volOrder.get(a.volumeId) ?? 0) - (volOrder.get(b.volumeId) ?? 0) || a.order - b.order,
   )

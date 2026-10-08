@@ -62,14 +62,11 @@ export function migrate(raw: AppState): AppState {
       outlineStatus: old.outlineStatus ?? (countWords(old.content ?? '') > 0 ? 'written' : 'plan'),
     }
   })
-  // 旧伏笔的 chapterId 为登记章死字段，迁移时剥离
-  const foreshadows = raw.foreshadows.map((f) => ({
-    id: f.id,
-    bookId: f.bookId,
-    title: f.title,
-    detail: f.detail ?? '',
-    status: f.status ?? ('planted' as ForeshadowStatus),
-  }))
+  // 旧伏笔的 chapterId 为登记章死字段，迁移时剥离；其余可选字段（重要度/关联角色/关联设定）必须原样保留
+  const foreshadows = raw.foreshadows.map((f) => {
+    const { chapterId: _legacy, ...rest } = f as Foreshadow & { chapterId?: ID }
+    return { ...rest, detail: f.detail ?? '', status: f.status ?? ('planted' as ForeshadowStatus) }
+  })
   const ai = raw.ai
   return {
     ...raw,
@@ -259,17 +256,6 @@ export const actions = {
       ...s,
       volumes: s.volumes.filter((v) => v.id !== id),
       chapters: s.chapters.filter((c) => c.volumeId !== id),
-    }))
-  },
-
-  reorderVolumes(bookId: ID, orderedIds: ID[]) {
-    set((s) => ({
-      ...s,
-      volumes: s.volumes.map((v) => {
-        if (v.bookId !== bookId) return v
-        const idx = orderedIds.indexOf(v.id)
-        return idx === -1 ? v : { ...v, order: idx }
-      }),
     }))
   },
 

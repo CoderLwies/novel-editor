@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2, BookOpen, Feather, FolderInput, FileInput } from 'lucide-react'
 import { useStore, actions, bookWordCount } from '../store'
 import type { Book } from '../types'
@@ -19,13 +19,17 @@ export default function Bookshelf() {
   const [showNew, setShowNew] = useState(false)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const totalWords = state.books.reduce((s, b) => s + bookWordCount(state, b.id), 0)
   const totalChapters = state.chapters.length
 
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
+
   function flash(msg: string) {
     setToast(msg)
-    setTimeout(() => setToast(null), 3000)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 3000)
   }
 
   async function importFolder() {

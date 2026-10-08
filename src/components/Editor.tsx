@@ -44,9 +44,13 @@ export default function Editor({
   const future = useRef<string[]>([])
   const lastPush = useRef(0)
 
-  // 切换章节时，重置本地内容与撤销栈
+  // 切换章节时重置本地内容与撤销栈；同一章被外部改动（搜索替换 / 目录改名等）时同步回来
   useEffect(() => {
-    if (chapter && chapter.id !== lastId.current) {
+    if (!chapter) {
+      lastId.current = null
+      return
+    }
+    if (chapter.id !== lastId.current) {
       lastId.current = chapter.id
       setContent(chapter.content)
       setTitle(chapter.title)
@@ -57,8 +61,11 @@ export default function Editor({
       setSel(null)
       setAiResult(null)
       requestAnimationFrame(() => taRef.current?.focus())
+      return
     }
-    if (!chapter) lastId.current = null
+    // 本组件提交时两者一致，函数式 set 原样返回、不触发额外渲染
+    setContent((c) => (c === chapter.content ? c : chapter.content))
+    setTitle((t) => (t === chapter.title ? t : chapter.title))
   }, [chapter])
 
   // 自动伸缩 textarea 高度
@@ -102,7 +109,7 @@ export default function Editor({
       ta.setSelectionRange(jump.index, jump.index + jump.length)
       scrollToCaret(jump.index)
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 仅在跳转 nonce 变化时执行，跳转目标对象引用每次都会变
   }, [jump?.nonce])
 
   function pushHistory(prev: string) {

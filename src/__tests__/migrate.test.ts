@@ -35,4 +35,18 @@ describe('migrate', () => {
     expect(m.ai.baseUrl).toBe('http://x.test/v1')
     expect(m.ai.model).toBe('my-model')
   })
+
+  it('伏笔的可选字段（重要度/关联角色/关联设定）不被迁移清掉', () => {
+    const st = {
+      ...raw,
+      foreshadows: [
+        { id: 'f', bookId: 'b', title: 't', detail: '', status: 'planted', chapterId: 'c', priority: 'main', characterIds: ['c1'], settingIds: ['s1'] },
+      ],
+    } as unknown as AppState
+    const m = migrate(st)
+    expect(m.foreshadows[0].priority).toBe('main')
+    expect(m.foreshadows[0].characterIds).toEqual(['c1'])
+    expect(m.foreshadows[0].settingIds).toEqual(['s1'])
+    expect((m.foreshadows[0] as { chapterId?: string }).chapterId).toBeUndefined()
+  })
 })

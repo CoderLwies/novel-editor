@@ -29,7 +29,7 @@ export default function FileMenu({ book }: { book: BookType }) {
     return () => clearTimeout(t)
   }, [toast])
 
-  async function run(fn: () => Promise<void>, label?: string) {
+  async function run(fn: () => Promise<void>) {
     setBusy(true)
     setOpen(false)
     try {
@@ -38,7 +38,6 @@ export default function FileMenu({ book }: { book: BookType }) {
       setToast(`失败：${(e as Error).message}`)
     } finally {
       setBusy(false)
-      void label
     }
   }
 
