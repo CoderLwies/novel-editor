@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Plus, Trash2, User, Map as MapIcon, ScrollText, Swords, Package, Users, BookMarked, ChevronDown, ChevronRight, Wand2, GitBranch, RefreshCcw, ShieldCheck, Loader2 } from 'lucide-react'
 import { useStore, actions, volumesOf, chaptersOf } from '../store'
-import type { Book, Chapter, Character, CharacterState, SettingCategory, ForeshadowStatus, ForeshadowPriority, OutlineStatus, ID } from '../types'
+import type { Book, Chapter, Character, CharacterState, SettingItem, SettingCategory, ForeshadowStatus, ForeshadowPriority, OutlineStatus, ID } from '../types'
 import { countWords, formatNumber } from '../utils'
-import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, aiReady, characterCardPrompt, type GenWriteback, type GenCharacterCard } from '../ai'
-import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal } from './AiModals'
+import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, aiReady, characterCardPrompt, settingCardPrompt, type GenWriteback, type GenCharacterCard, type GenSettingCard } from '../ai'
+import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal, AiGenSettingsModal } from './AiModals'
 import Modal from './Modal'
 import RelationGraph from './RelationGraph'
 
@@ -705,15 +705,57 @@ function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; fil
 
 function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
   const state = useStore()
+  const [showGen, setShowGen] = useState(false)
+  const [showAiSettings, setShowAiSettings] = useState(false)
+  const [aiTarget, setAiTarget] = useState<string | null>(null)
+  const [aiDraft, setAiDraft] = useState<GenSettingCard | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
   const all = state.settings.filter((c) => c.bookId === bookId)
   const kw = filter.trim()
   const list = kw ? all.filter((i) => `${i.name}${i.desc}${i.status ?? ''}`.includes(kw)) : all
   const chapters = state.chapters.filter((c) => c.bookId === bookId)
   const cats = Object.keys(CATEGORY_META) as SettingCategory[]
   const fss = state.foreshadows.filter((x) => x.bookId === bookId)
+  const book = state.books.find((b) => b.id === bookId)
+
+  async function runCardAi(s: SettingItem) {
+    if (!book) return
+    setAiBusy(true)
+    setAiTarget(s.id)
+    setAiDraft(null)
+    try {
+      const src = chapters.filter((ch) => s.name && ch.content.includes(s.name)).slice(0, 3).map((ch) => ch.content.slice(0, 1500))
+      const r = await chatJSON<GenSettingCard>(state.ai, SYS_PLANNER, settingCardPrompt(book, s, src))
+      setAiDraft(r)
+    } catch (e) {
+      setAiDraft({ desc: `失败：${(e as Error).message}` })
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  function applyDraft(mode: 'fill' | 'overwrite') {
+    if (!aiDraft || !aiTarget) return
+    const target = all.find((x) => x.id === aiTarget)
+    if (!target) return
+    const patch: Partial<SettingItem> = {}
+    if (aiDraft.desc?.trim() && (mode === 'overwrite' || !(target.desc ?? '').trim())) patch.desc = aiDraft.desc
+    if (aiDraft.status?.trim() && (mode === 'overwrite' || !(target.status ?? '').trim())) patch.status = aiDraft.status
+    actions.updateSetting(aiTarget, patch)
+    setAiDraft(null)
+    setAiTarget(null)
+  }
+
   return (
     <div className="side-scroll">
-      <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索设定名 / 描述 / 状态…" />
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ flex: 1 }}>
+          <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索设定名 / 描述 / 状态…" />
+        </div>
+        <button className="btn btn-ghost" style={{ flex: '0 0 auto', marginBottom: 8 }} onClick={() => setShowGen(true)}>
+          <Wand2 size={13} /> AI 生成设定
+        </button>
+      </div>
       {list.length === 0 && <Empty text={kw ? '没有匹配的设定' : '还没有设定，点击下方新增'} />}
       {cats.map((cat) => {
         const items = list.filter((i) => i.category === cat)
@@ -732,6 +774,9 @@ function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filte
                   <div className="card-title">
                     <input className="inline-edit" style={{ fontWeight: 600, fontSize: 13.5 }} value={it.name}
                       onChange={(e) => actions.updateSetting(it.id, { name: e.target.value })} />
+                    <button className="icon-btn" title="AI 补全设定" disabled={aiBusy || !aiReady(state.ai)} onClick={() => void runCardAi(it)}>
+                      {aiBusy && aiTarget === it.id ? <Loader2 size={12} className="spin" /> : <Wand2 size={12} />}
+                    </button>
                   </div>
                   <input className="inline-edit" style={{ fontSize: 11.5, color: 'var(--accent)', marginTop: 4 }}
                     value={it.status ?? ''}
@@ -783,6 +828,40 @@ function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filte
           </div>
         )
       })}
+      {showGen && book && (
+        <AiGenSettingsModal
+          book={book}
+          onClose={() => setShowGen(false)}
+          onOpenSettings={() => { setShowGen(false); setShowAiSettings(true) }}
+        />
+      )}
+      {showAiSettings && <AiSettingsModal onClose={() => setShowAiSettings(false)} />}
+      {aiDraft && (
+        <Modal
+          title={`AI 补全设定 · ${all.find((x) => x.id === aiTarget)?.name ?? ''}`}
+          onClose={() => { setAiDraft(null); setAiTarget(null) }}
+          width={560}
+          foot={
+            <>
+              <button className="btn btn-ghost" onClick={() => { setAiDraft(null); setAiTarget(null) }}>取消</button>
+              <button className="btn btn-ghost" onClick={() => applyDraft('overwrite')}>覆盖采用</button>
+              <button className="btn btn-primary" onClick={() => applyDraft('fill')}>填入空缺</button>
+            </>
+          }
+        >
+          <div className="hint">填入空缺：只写设定尚空的字段；覆盖采用：以本页内容重写。可先编辑再采用。</div>
+          <div className="ol-field">
+            <div className="lbl">描述</div>
+            <textarea className="field ol-f" rows={4} value={aiDraft.desc ?? ''}
+              onChange={(e) => setAiDraft({ ...aiDraft, desc: e.target.value })} />
+          </div>
+          <div className="ol-field">
+            <div className="lbl">当前状态</div>
+            <input className="field ol-f" value={aiDraft.status ?? ''}
+              onChange={(e) => setAiDraft({ ...aiDraft, status: e.target.value })} />
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

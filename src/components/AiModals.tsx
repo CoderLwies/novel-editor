@@ -2,17 +2,19 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Info, Loader2, PlugZap } from 'lucide-react'
 import Modal from './Modal'
 import { useStore, actions, chaptersOf } from '../store'
-import type { Book, Volume, Chapter } from '../types'
+import type { Book, Volume, Chapter, SettingCategory } from '../types'
 import {
   aiReady,
   chatJSON,
   splitOutlinePrompt,
   branchPrompt,
   consistencyCheck,
+  genSettingsPrompt,
   SYS_PLANNER,
   type GenChapterOutline,
   type GenBranch,
   type CheckIssue,
+  type GenSetting,
 } from '../ai'
 
 function AiGuard({ onOpenSettings }: { onOpenSettings: () => void }) {
@@ -254,6 +256,97 @@ export function AiBranchModal({
             采用
           </button>
         </div>
+      ))}
+    </Modal>
+  )
+}
+
+const SETTING_CATS: SettingCategory[] = ['location', 'item', 'faction', 'rule', 'power']
+
+export function AiGenSettingsModal({
+  book,
+  onClose,
+  onOpenSettings,
+}: {
+  book: Book
+  onClose: () => void
+  onOpenSettings: () => void
+}) {
+  const state = useStore()
+  const [items, setItems] = useState<GenSetting[] | null>(null)
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    const existing = state.settings.filter((s) => s.bookId === book.id)
+    chatJSON<{ settings?: GenSetting[] }>(state.ai, SYS_PLANNER, genSettingsPrompt(book, existing))
+      .then((r) => {
+        if (!alive) return
+        const list = (r.settings ?? []).filter((x) => x && x.name)
+        setItems(list)
+        setPicked(new Set(list.map((_, i) => i)))
+      })
+      .catch((e) => alive && setErr((e as Error).message))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function apply() {
+    for (const i of picked) {
+      const g = items![i]
+      const cat = SETTING_CATS.includes(g.category as SettingCategory) ? (g.category as SettingCategory) : 'rule'
+      const s = actions.createSetting(book.id, { name: g.name, category: cat })
+      actions.updateSetting(s.id, { desc: g.desc ?? '', status: g.status ?? '' })
+    }
+    onClose()
+  }
+
+  return (
+    <Modal
+      title={`AI 生成设定 · ${book.title}`}
+      onClose={onClose}
+      width={620}
+      foot={
+        items ? (
+          <>
+            <span style={{ marginRight: 'auto', fontSize: 12, color: 'var(--text-faint)' }}>
+              已选 {picked.size} / {items.length} 条
+            </span>
+            <button className="btn btn-ghost" onClick={onClose}>取消</button>
+            <button className="btn btn-primary" disabled={picked.size === 0} onClick={apply}>
+              创建所选设定
+            </button>
+          </>
+        ) : undefined
+      }
+    >
+      {!aiReady(state.ai) && <AiGuard onOpenSettings={onOpenSettings} />}
+      {aiReady(state.ai) && !items && !err && (
+        <div className="ai-loading"><Loader2 size={16} className="spin" /> 正在依据总纲构思世界观设定…</div>
+      )}
+      {err && <Err text={`生成失败：${err}`} />}
+      {items?.map((g, i) => (
+        <label className={`ai-item ${picked.has(i) ? 'sel' : ''}`} key={i}>
+          <input
+            type="checkbox"
+            checked={picked.has(i)}
+            onChange={() =>
+              setPicked((prev) => {
+                const next = new Set(prev)
+                next.has(i) ? next.delete(i) : next.add(i)
+                return next
+              })
+            }
+          />
+          <span className="ai-item-body">
+            <span className="ai-item-title">{g.name} · {g.category}</span>
+            <span className="ai-item-desc">{g.desc}</span>
+            {g.status && <span className="ai-item-meta">状态：{g.status}</span>}
+          </span>
+        </label>
       ))}
     </Modal>
   )

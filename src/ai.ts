@@ -1,4 +1,4 @@
-import type { AIConfig, AppState, Book, Volume, Chapter, Character, ID } from './types'
+import type { AIConfig, AppState, Book, Volume, Chapter, Character, SettingItem, ID } from './types'
 import { countWords } from './utils'
 
 /** 当前仅支持 DeepSeek flash；baseUrl 预填官方端点，用户可改为兼容中转 */
@@ -129,6 +129,41 @@ export function characterCardPrompt(book: Book, ch: Character, excerpts: string[
     '归纳该角色：appearance 外貌、personality 性格、background 背景身世、motivation 动机目标、ability 能力/功法、speech 口头禅或语言习惯。',
     '仅依据正文，不得虚构正文没有的事实；无依据的字段留空字符串。',
     'schema: {"appearance":"","personality":"","background":"","motivation":"","ability":"","speech":""}',
+  ].join('\n')
+}
+
+export interface GenSetting {
+  name: string
+  category: string
+  status: string
+  desc: string
+}
+
+export interface GenSettingCard {
+  desc?: string
+  status?: string
+}
+
+export function genSettingsPrompt(book: Book, existing: SettingItem[]): string {
+  return [
+    `作品《${book.title}》（${book.genre}）总纲：${book.synopsis || '无'}`,
+    existing.length > 0
+      ? `已有设定：${existing.map((s) => `${s.name}(${s.category})`).join('、')}（不得重复）`
+      : '暂无设定',
+    '为该世界观补充 3 到 6 条设定，覆盖地点/物品/势力/规则/功法等类别，服务于主线冲突。',
+    'schema: {"settings":[{"name":"","category":"location|item|faction|rule|power","status":"","desc":""}]}',
+  ].join('\n')
+}
+
+export function settingCardPrompt(book: Book, s: SettingItem, excerpts: string[]): string {
+  return [
+    `作品《${book.title}》设定"${s.name}"（类别 ${s.category}）。`,
+    excerpts.length > 0
+      ? `正文相关片段：\n"""${excerpts.join('\n---\n')}"""`
+      : '暂无正文片段，仅依据设定名保守推断。',
+    '归纳该设定：desc 描述（含运作方式与限制）、status 当前状态（如活跃/覆灭/已毁）。',
+    '仅依据正文，不得虚构正文没有的事实；无依据的字段留空字符串。',
+    'schema: {"desc":"","status":""}',
   ].join('\n')
 }
 

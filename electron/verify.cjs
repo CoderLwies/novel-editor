@@ -51,6 +51,15 @@ function startFakeAi() {
           payload = { issues: ['节奏偏慢E2E'] }
         } else if (body.includes('口头禅或语言习惯')) {
           payload = { appearance: 'AI外貌E2E', personality: 'AI性格E2E', speech: 'AI口头禅E2E' }
+        } else if (body.includes('补充 3 到 6 条设定')) {
+          payload = {
+            settings: [
+              { name: 'AI灵脉E2E', category: 'rule', status: '活跃', desc: '天地灵脉设定E2E' },
+              { name: 'AI黑市E2E', category: 'faction', status: '隐匿', desc: '地下交易势力E2E' },
+            ],
+          }
+        } else if (body.includes('归纳该设定')) {
+          payload = { desc: 'AI设定描述E2E', status: 'AI状态E2E' }
         } else {
           payload = { ok: true }
         }
@@ -755,6 +764,35 @@ async function main() {
   const recentChips = await js(`[...document.querySelectorAll('.recent-row .ol-chip')].length`)
   const recentFirst = await js(`document.querySelector('.recent-row .ol-chip')?.textContent ?? ''`)
   console.log('E2E recent open -> chips:', recentChips, '| first:', recentFirst)
+
+  // 20) 设定 AI：生成采纳 + 单卡补全
+  const aiSrv4 = await startFakeAi()
+  const port4 = aiSrv4.address().port
+  await js(`(() => {
+    const K = 'zizhou-state-v1'
+    const s = JSON.parse(localStorage.getItem(K))
+    s.ai = { baseUrl: 'http://127.0.0.1:${port4}', apiKey: '', model: 'deepseek-flash' }
+    localStorage.setItem(K, JSON.stringify(s))
+  })()`)
+  await win.reload()
+  await sleep(1400)
+  await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('混沌神尊'))?.click()`)
+  await sleep(700)
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='设定').click()`)
+  await sleep(400)
+  await js(`[...document.querySelectorAll('.side .btn')].find(b=>b.textContent.includes('AI 生成设定'))?.click()`)
+  await sleep(900)
+  const genItems = await js(`document.querySelectorAll('.modal .ai-item').length`)
+  await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('创建所选设定'))?.click()`)
+  await sleep(600)
+  const genCreated = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).settings.some(s=>s.name==='AI灵脉E2E')`)
+  await js(`[...document.querySelectorAll('.side .card .icon-btn')].find(b=>(b.title||'').includes('AI 补全设定'))?.click()`)
+  await sleep(900)
+  await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('填入空缺'))?.click()`)
+  await sleep(500)
+  const setStatus = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).settings.find(s=>s.name==='青云镇')?.status`)
+  aiSrv4.close()
+  console.log('E2E setting ai -> gen items:', genItems, '| created:', genCreated, '| card status filled:', setStatus)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
