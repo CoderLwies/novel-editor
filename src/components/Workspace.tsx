@@ -38,8 +38,14 @@ export default function Workspace({ book }: { book: Book }) {
   const [showInstall, setShowInstall] = useState(false)
 
   useEffect(() => {
+    const last = { current: null as { text: string; at: number } | null }
     return onUpdaterStatus((s) => {
-      setToast(updaterText(s))
+      const text = updaterText(s)
+      const now = Date.now()
+      // 同文本 10s 内去重：避免连发/周期事件反复重置 toast 计时导致不消失
+      if (last.current && last.current.text === text && now - last.current.at < 10000) return
+      last.current = { text, at: now }
+      setToast(text)
       if (s.kind === 'downloaded') setShowInstall(true)
     })
   }, [])

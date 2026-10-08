@@ -86,17 +86,24 @@ function createWindow() {
 }
 
 if (app.isPackaged) {
+  let manualCheck = false
   autoUpdater.on('checking-for-update', () => sendUpdaterStatus({ kind: 'checking' }))
   autoUpdater.on('update-available', (info) => sendUpdaterStatus({ kind: 'available', version: info.version }))
   autoUpdater.on('update-not-available', () => sendUpdaterStatus({ kind: 'uptodate' }))
   autoUpdater.on('download-progress', (p) => sendUpdaterStatus({ kind: 'progress', percent: Math.round(p.percent) }))
   autoUpdater.on('update-downloaded', () => sendUpdaterStatus({ kind: 'downloaded' }))
-  autoUpdater.on('error', (e) => sendUpdaterStatus({ kind: 'error', message: String((e && e.message) || e) }))
+  // 启动自动检查失败静默（占位/无网络不打扰），仅手动检查报错
+  autoUpdater.on('error', (e) => {
+    if (manualCheck) sendUpdaterStatus({ kind: 'error', message: String((e && e.message) || e) })
+    manualCheck = false
+  })
   ipcMain.handle('updater:check', async () => {
+    manualCheck = true
     try {
       await autoUpdater.checkForUpdates()
     } catch (e) {
       sendUpdaterStatus({ kind: 'error', message: e.message })
+      manualCheck = false
     }
     return true
   })
