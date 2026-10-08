@@ -77,7 +77,7 @@ export function migrate(raw: AppState): AppState {
     chapters,
     foreshadows,
     snapshots: raw.snapshots ?? [],
-    ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '', onboarded: raw.ui.onboarded ?? true },
+    ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '', onboarded: raw.ui.onboarded ?? true, recentBookIds: raw.ui.recentBookIds ?? [] },
     // 模型固定为 deepseek-flash；baseUrl 沿用用户已填值，否则回落到官方端点
     ai: {
       baseUrl: ai?.baseUrl?.trim() ? ai.baseUrl : DEFAULT_AI_BASE_URL,
@@ -88,6 +88,12 @@ export function migrate(raw: AppState): AppState {
 }
 
 let state: AppState = load()
+let hadStorageAtLoad = false
+try {
+  hadStorageAtLoad = localStorage.getItem(STORAGE_KEY) !== null
+} catch {
+  /* no storage */
+}
 const listeners = new Set<() => void>()
 
 /** 每章快照上限 10 个，超出丢弃最旧 */
@@ -98,12 +104,47 @@ function pushCapped(list: ChapterSnapshot[], snap: ChapterSnapshot, chapterId: I
   return [...others, ...keep, snap]
 }
 
-function persist() {
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+
+function writeNow() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   } catch {
     /* storage full or unavailable */
   }
+}
+
+/** 防抖落 localStorage：连续 set（如输入）合并为一次全量序列化 */
+function persist() {
+  if (typeof window === 'undefined') return
+  if (persistTimer !== null) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    writeNow()
+  }, 200)
+}
+
+export function flushPersist() {
+  // 仅补写防抖未及的尾写；无待写不碰存储，避免覆盖外部对存储的直接修改
+  if (persistTimer === null) return
+  clearTimeout(persistTimer)
+  persistTimer = null
+  // 启动时存储有值、现被外部清空（如测试重置）：不复活内存旧数据
+  if (hadStorageAtLoad) {
+    try {
+      if (localStorage.getItem(STORAGE_KEY) === null) return
+    } catch {
+      return
+    }
+  }
+  writeNow()
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', flushPersist)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPersist()
+  })
 }
 
 function set(updater: (s: AppState) => AppState) {
@@ -443,7 +484,15 @@ export const actions = {
     set((s) => ({ ...s, ui: { ...s.ui, fontSize: Math.min(28, Math.max(13, fontSize)) } }))
   },
   openBook(bookId: ID, chapterId: ID | null = null) {
-    set((s) => ({ ...s, ui: { ...s.ui, lastBookId: bookId, lastChapterId: chapterId } }))
+    set((s) => ({
+      ...s,
+      ui: {
+        ...s.ui,
+        lastBookId: bookId,
+        lastChapterId: chapterId,
+        recentBookIds: [bookId, ...(s.ui.recentBookIds ?? []).filter((x) => x !== bookId)].slice(0, 8),
+      },
+    }))
   },
   selectChapter(chapterId: ID) {
     set((s) => ({ ...s, ui: { ...s.ui, lastChapterId: chapterId } }))

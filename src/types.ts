@@ -132,6 +132,8 @@ export interface UIState {
   lastGoalToastDate: string
   /** 是否已完成新手引导 */
   onboarded?: boolean
+  /** 最近打开的书 id（最多 8） */
+  recentBookIds?: ID[]
 }
 
 export interface ChapterSnapshot {

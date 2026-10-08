@@ -742,12 +742,19 @@ async function main() {
     const lbl = [...document.querySelectorAll('.ol-chips-block .lbl')].find(l=>l.textContent.includes('本章挂接设定'))
     lbl?.parentElement?.querySelector('.ol-chip')?.click()
   })()`)
-  await sleep(500)
+  await sleep(800)
   const hooked = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).chapters.find(c=>c.title.includes('第一章'))?.settingIds?.length`)
   await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='设定').click()`)
   await sleep(400)
   const hookChips = await js(`[...document.querySelectorAll('.side .fs-link-label')].filter(l=>l.textContent==='挂接').length`)
   console.log('E2E setting hook -> chapter settingIds:', hooked, '| setting hooked chips:', hookChips)
+
+  // 19) 最近打开列表
+  await js(`document.querySelector('button[title="返回书架"]').click()`)
+  await sleep(600)
+  const recentChips = await js(`[...document.querySelectorAll('.recent-row .ol-chip')].length`)
+  const recentFirst = await js(`document.querySelector('.recent-row .ol-chip')?.textContent ?? ''`)
+  console.log('E2E recent open -> chips:', recentChips, '| first:', recentFirst)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

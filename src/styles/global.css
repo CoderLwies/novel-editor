@@ -319,6 +319,13 @@ label.lbl {
   font-size: 11.5px;
   padding: 3px 6px;
 }
+.recent-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 2px 0 16px;
+}
 
 .brand-logo {
   width: 38px;

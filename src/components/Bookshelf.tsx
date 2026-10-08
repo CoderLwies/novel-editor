@@ -103,6 +103,20 @@ export default function Bookshelf() {
         </div>
       </div>
 
+      {(state.ui.recentBookIds ?? []).length > 0 && (
+        <div className="recent-row">
+          <span className="lbl" style={{ marginRight: 2 }}>最近打开</span>
+          {(state.ui.recentBookIds ?? []).map((id) => {
+            const b = state.books.find((x) => x.id === id)
+            return b ? (
+              <button key={id} className="ol-chip" onClick={() => actions.openBook(id, null)}>
+                {b.title}
+              </button>
+            ) : null
+          })}
+        </div>
+      )}
+
       <div className="book-grid">
         {state.books.map((b) => {
           const words = bookWordCount(state, b.id)

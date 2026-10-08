@@ -78,7 +78,20 @@ export default function Editor({
     box.scrollTop = Math.max(0, line * lh - box.clientHeight / 2)
   }
 
-  // 全文搜索跳转：选中命中区间并滚动到视口中部
+  // 选区跟踪：selectionchange 覆盖鼠标/键盘/程序化选区变化
+  useEffect(() => {
+    const onSelChange = () => {
+      const ta = taRef.current
+      if (!ta || document.activeElement !== ta) return
+      const s = ta.selectionStart
+      const en = ta.selectionEnd
+      setSel(s !== en ? { start: s, end: en, text: ta.value.slice(s, en) } : null)
+    }
+    document.addEventListener('selectionchange', onSelChange)
+    return () => document.removeEventListener('selectionchange', onSelChange)
+  }, [])
+
+  // 搜索跳转：选中命中区间并滚动到视口中部
   const jump = state.ui.jump
   useEffect(() => {
     if (!jump || !chapter || jump.chapterId !== chapter.id) return
@@ -265,12 +278,6 @@ export default function Editor({
           placeholder="从这里开始写下你的故事…"
           onChange={(e) => onContentChange(e.target.value)}
           onKeyDown={onKey}
-          onSelect={(e) => {
-            const t = e.currentTarget
-            const s = t.selectionStart
-            const en = t.selectionEnd
-            setSel(s !== en ? { start: s, end: en, text: t.value.slice(s, en) } : null)
-          }}
           spellCheck={false}
         />
       </div>

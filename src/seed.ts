@@ -325,6 +325,7 @@ export function createSeedState(): AppState {
       jump: null,
       lastGoalToastDate: '',
       onboarded: false,
+      recentBookIds: [],
     },
     ai: { ...DEFAULT_AI_CONFIG },
     snapshots: [],
