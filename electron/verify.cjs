@@ -555,7 +555,7 @@ async function main() {
   await js(`document.querySelector('button[title="AI 接口设置"]').click()`)
   await sleep(400)
   const modelChips = await js(`[...document.querySelectorAll('.modal .ol-chip')].map(b=>b.textContent).join('|')`)
-  await js(`[...document.querySelectorAll('.modal .ol-chip')].find(b=>b.textContent.includes('deepseek-chat'))?.click()`)
+  await js(`[...document.querySelectorAll('.modal .ol-chip')].find(b=>b.textContent.includes('deepseek-flash'))?.click()`)
   await sleep(300)
   const modelNow = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).ai.model`)
   await js(`document.querySelector('.modal-head .icon-btn')?.click()`)
@@ -576,7 +576,7 @@ async function main() {
   await js(`document.querySelector('.modal-head .icon-btn')?.click()`)
   aiSrv2.close()
   console.log('E2E block3 -> sel tools:', toolBtns.includes('续写'), '| continued:', continued,
-    '| model chips:', modelChips.includes('deepseek-chat'), '| model now:', modelNow, '| mixed-name issue:', mixedIssue)
+    '| model chips:', modelChips.includes('deepseek-flash'), '| model now:', modelNow, '| mixed-name issue:', mixedIssue)
 
   // 12) EPUB 导出：zip 结构 / mimetype / OPF 标题与章节数
   await js(`document.querySelector('.filemenu > button')?.click()`)

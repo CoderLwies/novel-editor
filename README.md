@@ -160,7 +160,7 @@ foreshadowPayoffs: [fs_2]
 
 - **Base URL**：默认 `https://api.deepseek.com`，可改为任意 OpenAI 兼容中转
 - **API Key**：DeepSeek 密钥（本地免鉴权服务可留空）
-- **模型**：预设 chips（deepseek-flash / deepseek-chat / deepseek-reasoner）或自填任意兼容模型名
+- **模型**：预设 `deepseek-flash`（DeepSeek-V4.1-Flash），也可自填兼容模型名
 
 配置仅存本机 localStorage；请求由桌面端直连所填地址，不经过任何第三方服务器。
 
