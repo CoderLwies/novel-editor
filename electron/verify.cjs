@@ -11,6 +11,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mozhang-e2e-'))
 // save dialog is stubbed too, so exports can be asserted headlessly
 const stubSavePath = path.join(stubDir, 'exported-outline.md')
+// 正文落盘的应用数据根目录：独立于 stubDir（后者会被各步骤改写）
+const userDataStub = fs.mkdtempSync(path.join(os.tmpdir(), 'mozhang-ud-'))
 
 // loopback fake OpenAI-compatible server: canned JSON per prompt kind
 function startFakeAi() {
@@ -72,6 +74,25 @@ function startFakeAi() {
 }
 
 ipcMain.handle('fs:readFile', async (_e, p) => fsp.readFile(p, 'utf8'))
+
+// 与 main.cjs 同款编码探测：导入 GBK 小说必需
+function decodeText(buf) {
+  try {
+    return { text: new TextDecoder('utf-8', { fatal: true }).decode(buf), encoding: 'utf-8' }
+  } catch {
+    /* 非合法 utf-8 */
+  }
+  try {
+    return { text: new TextDecoder('gb18030').decode(buf), encoding: 'gb18030' }
+  } catch {
+    return { text: buf.toString('utf8'), encoding: 'utf-8-lossy' }
+  }
+}
+
+ipcMain.handle('fs:readText', async (_e, p) => {
+  const r = decodeText(await fsp.readFile(p))
+  return { path: p, text: r.text, encoding: r.encoding }
+})
 ipcMain.handle('fs:writeFile', async (_e, p, content) => {
   await fsp.mkdir(path.dirname(p), { recursive: true })
   await fsp.writeFile(p, content, 'utf8')
@@ -86,6 +107,8 @@ ipcMain.handle('fs:mkdirp', async (_e, p) => { await fsp.mkdir(p, { recursive: t
 ipcMain.handle('fs:readdir', async (_e, p) =>
   (await fsp.readdir(p, { withFileTypes: true })).map((x) => ({ name: x.name, isDir: x.isDirectory() })))
 ipcMain.handle('fs:exists', async (_e, p) => fs.existsSync(p))
+// 正文落盘的应用数据根目录；固定独立目录，不随 stubDir 改写而漂移
+ipcMain.handle('app:userData', async () => userDataStub)
 ipcMain.handle('dialog:openDirectory', async () => stubDir)
 ipcMain.handle('dialog:openFile', async (_e, filters) => {
   const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: filters || undefined })
@@ -115,6 +138,28 @@ async function main() {
   await win.reload()
   await sleep(1400)
   const js = (code) => win.webContents.executeJavaScript(code)
+
+  // 0) 启动引导：正文落盘 + 从磁盘回填，必须在载入态消失后才继续
+  await sleep(2500)
+  const bootDone = await js(`!document.querySelector('.boot-splash')`)
+  const udBooks = fs.existsSync(path.join(userDataStub, 'books'))
+    ? fs.readdirSync(path.join(userDataStub, 'books'))
+    : []
+  // 正文剥离：localStorage 里除当前编辑章外不应再有正文
+  const lsStrip = await js(`(() => {
+    const s = JSON.parse(localStorage.getItem('zizhou-state-v1'))
+    if (!s) return 'no-state'
+    const withContent = s.chapters.filter(c => c.content && c.content.length > 0)
+    return { total: s.chapters.length, withContent: withContent.length,
+             paths: s.books.filter(b=>b.projectPath).length }
+  })()`)
+  const hasFsApi = await js(`!!(window.fsAPI && window.fsAPI.userDataDir)`)
+  const bootWarn = await js(`(() => {
+    return window.__bootWarn || 'none'
+  })()`)
+  console.log('E2E storage boot -> splash cleared:', bootDone, '| fsAPI.userDataDir:', hasFsApi,
+    '| auto dirs:', udBooks.length, '| chapters:', JSON.stringify(lsStrip), '| warn:', bootWarn)
+
   // 新手引导（首次 seed 未 onboarded）跳过，避免遮挡后续断言
   await js(`[...document.querySelectorAll('.modal .btn')].find(b=>b.textContent.includes('跳过'))?.click()`)
   await sleep(300)
@@ -159,6 +204,19 @@ async function main() {
   const files = chDir ? fs.readdirSync(path.join(stubDir, 'chapters')) : []
   const synced = files.some((f) => fs.readFileSync(path.join(stubDir, 'chapters', f), 'utf8').includes('验证自动落盘'))
   console.log('E2E autosync -> chapter files:', files, '| content synced:', synced)
+
+  // 2a) 增量写：再输入一个字，只应重写改动的那一章，不动其余章节文件
+  await js(`(() => {
+    const ta = document.querySelector('.editor-textarea')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(ta, '这是新建书的第一章正文，用于验证自动落盘。增量。')
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  const stampBefore = fs.statSync(path.join(stubDir, 'chapters', files[0])).mtimeMs
+  await sleep(1500)
+  const stampAfter = fs.statSync(path.join(stubDir, 'chapters', files[0])).mtimeMs
+  const incSync = fs.readFileSync(path.join(stubDir, 'chapters', files[0]), 'utf8').includes('增量。')
+  console.log('E2E incremental write -> edited file rewritten:', stampAfter > stampBefore, '| new text on disk:', incSync)
 
   // 2b) 侧栏三级大纲：填写章纲字段 + 切换纲状态，验证落盘到 book.json
   await js(`(() => {
@@ -239,11 +297,26 @@ async function main() {
   console.log('E2E import round-trip -> shelf:', titles)
   const st = JSON.parse(await js(`localStorage.getItem('zizhou-state-v1')`))
   const dupBooks = st.books.filter((b) => b.title === '测试新书')
-  const readback = dupBooks.some((b) => {
-    const c = st.chapters.find((x) => x.bookId === b.id)
-    return c?.synopsis === '外部改纲E2E' && (c?.content ?? '').includes('外部追加正文E2E') && c?.goal === '纲目标E2E标记'
-  })
-  console.log('E2E frontmatter readback -> external edit imported:', readback, '| copies:', dupBooks.length)
+  const importedMeta = dupBooks.find((b) => b.projectPath)
+  const metaOk = importedMeta
+    ? (() => {
+        const c = st.chapters.find((x) => x.bookId === importedMeta.id)
+        return c?.synopsis === '外部改纲E2E' && c?.goal === '纲目标E2E标记'
+      })()
+    : false
+
+  // 正文已落盘，localStorage 不再留正文：必须走完整路径验证 —— 打开刚导入的书看编辑器
+  await js(`(() => {
+    const card = [...document.querySelectorAll('.book-card')].find(c => c.textContent.includes('测试新书'))
+    card?.click()
+  })()`)
+  await sleep(900)
+  const editorText = await js(`document.querySelector('.editor-textarea')?.value ?? ''`)
+  const readback = metaOk && editorText.includes('外部追加正文E2E')
+  await js(`document.querySelector('button[title="返回书架"]')?.click()`)
+  await sleep(600)
+  console.log('E2E frontmatter readback -> external edit imported:', readback,
+    '| copies:', dupBooks.length, '| outline meta:', metaOk)
   await shot('11-after-newbook-import.png')
 
   // 4) v1 旧项目目录兼容：无 frontmatter、version 1 仍可导入

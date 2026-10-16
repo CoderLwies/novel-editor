@@ -12,7 +12,26 @@ function sendUpdaterStatus(status) {
 
 /* ------------------------- 文件系统 IPC 桥 ------------------------- */
 
+// 导入外部小说时的编码探测：严格 utf-8 优先，失败回退 gb18030（国内网文 txt 绝大多数）
+function decodeText(buf) {
+  try {
+    return { text: new TextDecoder('utf-8', { fatal: true }).decode(buf), encoding: 'utf-8' }
+  } catch {
+    /* 非合法 utf-8 */
+  }
+  try {
+    return { text: new TextDecoder('gb18030').decode(buf), encoding: 'gb18030' }
+  } catch {
+    return { text: buf.toString('utf8'), encoding: 'utf-8-lossy' }
+  }
+}
+
 ipcMain.handle('fs:readFile', async (_e, p) => fsp.readFile(p, 'utf8'))
+
+ipcMain.handle('fs:readText', async (_e, p) => {
+  const r = decodeText(await fsp.readFile(p))
+  return { path: p, text: r.text, encoding: r.encoding }
+})
 
 ipcMain.handle('fs:writeFile', async (_e, p, content) => {
   await fsp.mkdir(path.dirname(p), { recursive: true })
@@ -42,6 +61,9 @@ ipcMain.handle('fs:unlink', async (_e, p) => {
   await fsp.unlink(p)
   return true
 })
+
+// 正文落盘的应用数据根目录（每本书一个子目录）
+ipcMain.handle('app:userData', async () => app.getPath('userData'))
 
 ipcMain.handle('dialog:openDirectory', async () => {
   const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })

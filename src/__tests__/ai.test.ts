@@ -47,6 +47,7 @@ function mkState(opts: { chapters?: Partial<Chapter>[]; foreshadows?: Partial<Fo
     ui: { theme: 'dark', fontSize: 16, lastBookId: null, lastChapterId: null, jump: null, lastGoalToastDate: '' },
     ai: { baseUrl: '', apiKey: '', model: '' },
     snapshots: [],
+    references: [],
   } as AppState
 }
 

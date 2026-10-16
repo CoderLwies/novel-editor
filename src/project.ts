@@ -2,6 +2,7 @@ import type {
   AppState,
   Book,
   Volume,
+  Chapter,
   Character,
   SettingItem,
   Foreshadow,
@@ -75,6 +76,186 @@ function orderedChapters(state: AppState, bookId: ID) {
     .sort((a, b) => (volIndex.get(a.volumeId) ?? 0) - (volIndex.get(b.volumeId) ?? 0) || a.order - b.order)
 }
 
+/** 章节在全书中的序号（决定文件名 NNNN_） */
+function chapterSeq(state: AppState, chapterId: ID): number {
+  const ch = state.chapters.find((c) => c.id === chapterId)
+  if (!ch) return 0
+  return orderedChapters(state, ch.bookId).findIndex((c) => c.id === chapterId) + 1
+}
+
+export function chapterFileName(ch: { title: string }, seq: number): string {
+  return `${String(seq).padStart(4, '0')}_${sanitizeFilename(ch.title)}.md`
+}
+
+/** 单章落盘内容：frontmatter 携带章纲字段 + 正文 */
+function chapterFileBody(c: {
+  title: string
+  status: ChapterStatus
+  outlineStatus: OutlineStatus
+  synopsis: string
+  goal: string
+  conflict: string
+  turning: string
+  hook: string
+  pov: string
+  cast: ID[]
+  foreshadowIds: ID[]
+  foreshadowPayoffs: ID[]
+  settingIds?: ID[]
+  content: string
+}): string {
+  return (
+    encodeFrontmatter({
+      title: c.title,
+      status: c.status,
+      outlineStatus: c.outlineStatus,
+      synopsis: c.synopsis,
+      goal: c.goal,
+      conflict: c.conflict,
+      turning: c.turning,
+      hook: c.hook,
+      pov: c.pov,
+      cast: c.cast,
+      foreshadowIds: c.foreshadowIds,
+      foreshadowPayoffs: c.foreshadowPayoffs,
+      settingIds: c.settingIds,
+    }) + c.content
+  )
+}
+
+/** 章纲元数据（写入 book.json 用） */
+function toChapterMeta(c: Chapter, file: string): ChapterMeta {
+  return {
+    id: c.id,
+    volumeId: c.volumeId,
+    title: c.title,
+    order: c.order,
+    status: c.status,
+    synopsis: c.synopsis,
+    file,
+    goal: c.goal,
+    conflict: c.conflict,
+    turning: c.turning,
+    hook: c.hook,
+    pov: c.pov,
+    cast: c.cast,
+    foreshadowIds: c.foreshadowIds,
+    foreshadowPayoffs: c.foreshadowPayoffs,
+    settingIds: c.settingIds,
+    outlineStatus: c.outlineStatus,
+  }
+}
+
+/**
+ * 增量写单章。输入时只重写改动的那一个文件，而不是全书 N 个文件。
+ * 返回该章的文件名。
+ */
+export async function writeChapterFile(state: AppState, chapterId: ID): Promise<string> {
+  const ch = state.chapters.find((c) => c.id === chapterId)
+  if (!ch) throw new Error('章节不存在')
+  const book = state.books.find((b) => b.id === ch.bookId)
+  if (!book?.projectPath) throw new Error('作品未绑定目录')
+  const file = chapterFileName(ch, chapterSeq(state, chapterId))
+  await fsLow.writeFile(joinPath(book.projectPath, 'chapters', file), chapterFileBody(ch))
+  return file
+}
+
+/** 写 book.json（作品/卷/章纲/角色/设定/伏笔），正文不在其中 */
+export async function writeBookMeta(state: AppState, bookId: ID): Promise<void> {
+  const book = state.books.find((b) => b.id === bookId)
+  if (!book?.projectPath) throw new Error('作品未绑定目录')
+  const chapters = orderedChapters(state, bookId)
+  const chaptersMeta = chapters.map((c, i) => toChapterMeta(c, chapterFileName(c, i + 1)))
+  const payload = {
+    format: PROJECT_FORMAT,
+    version: PROJECT_VERSION,
+    exportedAt: new Date().toISOString(),
+    book,
+    volumes: state.volumes.filter((v) => v.bookId === bookId),
+    chaptersMeta,
+    characters: state.characters.filter((c) => c.bookId === bookId),
+    settings: state.settings.filter((c) => c.bookId === bookId),
+    foreshadows: state.foreshadows.filter((c) => c.bookId === bookId),
+  }
+  await fsLow.writeFile(joinPath(book.projectPath, 'book.json'), JSON.stringify(payload, null, 2))
+}
+
+/**
+ * 剥离章节正文，得到可安全放进 localStorage 的轻量状态。
+ * 这是容量问题的关键：正文占了状态体积的绝大部分。
+ *
+ * resolveContent 用于例外放行（当前编辑章正文留在 localStorage 兜底防丢字）。
+ */
+export function stripContent(state: AppState, resolveContent?: (c: Chapter) => string): AppState {
+  return {
+    ...state,
+    chapters: state.chapters.map((c) => {
+      const keep = resolveContent?.(c) ?? ''
+      return c.content === keep ? c : { ...c, content: keep }
+    }),
+  }
+}
+
+/**
+ * 从磁盘回填章节正文。启动时用：先读 localStorage 轻量状态，再把正文补回来。
+ * 找不到文件的章保持空字符串（不阻塞启动）。
+ */
+export async function hydrateContent(state: AppState): Promise<AppState> {
+  const books = state.books
+  if (!books.some((b) => b.projectPath)) return state
+
+  const byId = new Map(state.chapters.map((c) => [c.id, c]))
+  const chapters = [...state.chapters]
+
+  for (const book of books) {
+    if (!book.projectPath) continue
+    // book.json 里的 chaptersMeta 提供文件名映射（含外部重命名后的结果）
+    let metaById = new Map<ID, ChapterMeta>()
+    try {
+      const parsed = JSON.parse(await fsLow.readFile(joinPath(book.projectPath, 'book.json')))
+      if (parsed?.format === PROJECT_FORMAT) {
+        metaById = new Map((parsed.chaptersMeta as ChapterMeta[]).map((m) => [m.id, m]))
+      }
+    } catch {
+      /* book.json 缺失或损坏时退回按序推断文件名 */
+    }
+
+    const own = chapters.filter((c) => c.bookId === book.id)
+    const ordered = orderedChapters(state, book.id)
+
+    for (let i = 0; i < own.length; i++) {
+      const c = own[i]
+      const meta = metaById.get(c.id)
+      const file = meta?.file ?? chapterFileName(ordered[i], i + 1)
+      try {
+        const raw = await fsLow.readFile(joinPath(book.projectPath, 'chapters', file))
+        // frontmatter 优先：外部编辑器改过的章纲一并回读
+        const { data, body } = parseFrontmatter(raw)
+        byId.set(c.id, {
+          ...c,
+          title: data.title ?? c.title,
+          synopsis: data.synopsis ?? c.synopsis,
+          goal: data.goal ?? c.goal,
+          conflict: data.conflict ?? c.conflict,
+          turning: data.turning ?? c.turning,
+          hook: data.hook ?? c.hook,
+          pov: data.pov ?? c.pov,
+          cast: data.cast ?? c.cast,
+          foreshadowIds: data.foreshadowIds ?? c.foreshadowIds,
+          foreshadowPayoffs: data.foreshadowPayoffs ?? c.foreshadowPayoffs,
+          settingIds: data.settingIds ?? c.settingIds,
+          outlineStatus: (data.outlineStatus as OutlineStatus) ?? c.outlineStatus,
+          content: body,
+        })
+      } catch {
+        /* 文件缺失：正文留空，其余元数据照常 */
+      }
+    }
+  }
+
+  return { ...state, chapters: state.chapters.map((c) => byId.get(c.id) ?? c) }
+}
+
 /* --------------------------- 项目目录 读/写 --------------------------- */
 
 export async function writeProjectToDir(dir: string, state: AppState, bookId: ID): Promise<string> {
@@ -87,44 +268,9 @@ export async function writeProjectToDir(dir: string, state: AppState, bookId: ID
   const chaptersMeta: ChapterMeta[] = []
   for (let i = 0; i < chapters.length; i++) {
     const c = chapters[i]
-    const file = `${String(i + 1).padStart(4, '0')}_${sanitizeFilename(c.title)}.md`
-    chaptersMeta.push({
-      id: c.id,
-      volumeId: c.volumeId,
-      title: c.title,
-      order: c.order,
-      status: c.status,
-      synopsis: c.synopsis,
-      file,
-      goal: c.goal,
-      conflict: c.conflict,
-      turning: c.turning,
-      hook: c.hook,
-      pov: c.pov,
-      cast: c.cast,
-      foreshadowIds: c.foreshadowIds,
-      foreshadowPayoffs: c.foreshadowPayoffs,
-      settingIds: c.settingIds,
-      outlineStatus: c.outlineStatus,
-    })
-    await fsLow.writeFile(
-      joinPath(dir, 'chapters', file),
-      encodeFrontmatter({
-        title: c.title,
-        status: c.status,
-        outlineStatus: c.outlineStatus,
-        synopsis: c.synopsis,
-        goal: c.goal,
-        conflict: c.conflict,
-        turning: c.turning,
-        hook: c.hook,
-        pov: c.pov,
-        cast: c.cast,
-        foreshadowIds: c.foreshadowIds,
-        foreshadowPayoffs: c.foreshadowPayoffs,
-        settingIds: c.settingIds,
-      }) + c.content,
-    )
+    const file = chapterFileName(c, i + 1)
+    chaptersMeta.push(toChapterMeta(c, file))
+    await fsLow.writeFile(joinPath(dir, 'chapters', file), chapterFileBody(c))
   }
 
   // 清理重命名/重排/删章后残留的旧章节文件，仅限本目录生成的 NNNN_*.md

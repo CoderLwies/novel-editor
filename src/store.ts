@@ -10,9 +10,12 @@ import type {
   ForeshadowStatus,
   ChapterSnapshot,
   AIConfig,
+  Reference,
   ID,
 } from './types'
 import type { ProjectData } from './project'
+import { writeChapterFile, writeBookMeta, writeProjectToDir, stripContent, hydrateContent } from './project'
+import { supportsFileStorage, getUserDataDir } from './fs'
 import { createSeedState } from './seed'
 import { DEFAULT_AI_BASE_URL, AI_MODEL } from './ai'
 import { countWords, todayKey, uid } from './utils'
@@ -74,6 +77,7 @@ export function migrate(raw: AppState): AppState {
     chapters,
     foreshadows,
     snapshots: raw.snapshots ?? [],
+    references: raw.references ?? [],
     ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '', onboarded: raw.ui.onboarded ?? true, recentBookIds: raw.ui.recentBookIds ?? [] },
     // 模型固定为 deepseek-flash；baseUrl 沿用用户已填值，否则回落到官方端点
     ai: {
@@ -103,21 +107,111 @@ function pushCapped(list: ChapterSnapshot[], snap: ChapterSnapshot, chapterId: I
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null
 
+/** 正文有变化的章 → 落盘时只重写这些文件，不动全书 */
+const dirtyChapters = new Set<ID>()
+/** 元数据（书/卷/章纲/角色/设定/伏笔）有变化 → 需要重写 book.json */
+let dirtyMeta = false
+/** 文件写入进行中；避免并发 flush 打乱顺序 */
+let flushing = false
+let flushQueued = false
+/** 正文是否已从磁盘回填完毕；false 时工作台需要显示载入态 */
+let contentHydrated = false
+const hydrateListeners = new Set<() => void>()
+
+function notifyHydrated() {
+  hydrateListeners.forEach((l) => l())
+}
+
+/** 正文回填进度。工作台据此显示载入态，避免 hydrate 覆盖用户刚输入的字 */
+export function useContentHydrated(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      hydrateListeners.add(cb)
+      return () => hydrateListeners.delete(cb)
+    },
+    () => contentHydrated,
+    () => true,
+  )
+}
+
+/**
+ * 正文是否已落盘（该书绑定了目录）。
+ * 未落盘的作品（浏览器端、或迁移前）正文仍留在 localStorage。
+ */
+function contentOnDisk(bookId: ID): boolean {
+  return !!state.books.find((b) => b.id === bookId)?.projectPath
+}
+
+/**
+ * 写入 localStorage。
+ * 已落盘的作品剥离正文（容量问题的关键）；但**始终保留当前编辑章的正文**，
+ * 因为 beforeunload 时异步文件写可能来不及，留它兜底防丢字。
+ */
 function writeNow() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    const keep = state.ui.lastChapterId
+    const meta = stripContent(state, (c) =>
+      keep && c.id === keep && !!state.books.find((b) => b.id === c.bookId)?.projectPath ? c.content : '',
+    )
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(meta))
   } catch {
     /* storage full or unavailable */
   }
 }
 
-/** 防抖落 localStorage：连续 set（如输入）合并为一次全量序列化 */
+/** 真正把脏数据落盘；文件写入失败不阻断 localStorage 兜底 */
+async function flushOnce() {
+  if (supportsFileStorage) {
+    for (const id of Array.from(dirtyChapters)) {
+      const ch = state.chapters.find((c) => c.id === id)
+      if (!ch || !contentOnDisk(ch.bookId)) continue
+      try {
+        await writeChapterFile(state, id)
+        dirtyChapters.delete(id)
+      } catch {
+        /* 目录不可写时保留在 dirty，下轮重试；本轮仍写 localStorage 兜底 */
+      }
+    }
+    if (dirtyMeta) {
+      for (const b of state.books) {
+        if (!b.projectPath) continue
+        try {
+          await writeBookMeta(state, b.id)
+        } catch {
+          /* 同上 */
+        }
+      }
+      dirtyMeta = false
+    }
+  }
+  writeNow()
+}
+
+function flushAsync() {
+  if (flushing) {
+    flushQueued = true
+    return
+  }
+  flushing = true
+  void (async () => {
+    try {
+      do {
+        flushQueued = false
+        await flushOnce()
+      } while (flushQueued)
+    } finally {
+      flushing = false
+    }
+  })()
+}
+
+/** 防抖落盘：连续 set（如输入）合并为一次 */
 function persist() {
   if (typeof window === 'undefined') return
   if (persistTimer !== null) return
   persistTimer = setTimeout(() => {
     persistTimer = null
-    writeNow()
+    flushAsync()
   }, 200)
 }
 
@@ -134,6 +228,7 @@ export function flushPersist() {
       return
     }
   }
+  // 卸载时刻必须同步兜底：文件写入是异步的，等不起
   writeNow()
 }
 
@@ -144,8 +239,59 @@ if (typeof window !== 'undefined') {
   })
 }
 
+const OUTLINE_KEYS = [
+  'title',
+  'synopsis',
+  'goal',
+  'conflict',
+  'turning',
+  'hook',
+  'pov',
+  'outlineStatus',
+  'volumeId',
+  'order',
+  'status',
+] as const
+
 function set(updater: (s: AppState) => AppState) {
-  state = updater(state)
+  const prev = state
+  const next = updater(state)
+  state = next
+
+  if (prev.chapters !== next.chapters) {
+    const prevById = new Map(prev.chapters.map((c) => [c.id, c]))
+    let outlineChanged = false
+    for (const c of next.chapters) {
+      const p = prevById.get(c.id)
+      if (!p) {
+        dirtyChapters.add(c.id)
+        outlineChanged = true
+        continue
+      }
+      if (p.content !== c.content) dirtyChapters.add(c.id)
+      if (OUTLINE_KEYS.some((k) => p[k] !== c[k])) outlineChanged = true
+      // 挂接类字段变化也要反映到 book.json 的章纲里
+      if (
+        p.cast !== c.cast ||
+        p.settingIds !== c.settingIds ||
+        p.foreshadowIds !== c.foreshadowIds ||
+        p.foreshadowPayoffs !== c.foreshadowPayoffs
+      ) {
+        outlineChanged = true
+      }
+    }
+    if (outlineChanged) dirtyMeta = true
+  }
+  if (
+    prev.books !== next.books ||
+    prev.volumes !== next.volumes ||
+    prev.characters !== next.characters ||
+    prev.settings !== next.settings ||
+    prev.foreshadows !== next.foreshadows
+  ) {
+    dirtyMeta = true
+  }
+
   persist()
   listeners.forEach((l) => l())
 }
@@ -161,6 +307,48 @@ function getSnapshot() {
 
 export function useStore(): AppState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
+/**
+ * 启动引导：为未绑定目录的作品分配应用数据目录并把正文落盘，
+ * 再把已落盘的正文回填回内存。浏览器端无此能力，直接跳过（正文留在 localStorage）。
+ *
+ * 幂等：每次启动都跑，已迁移过的书有 projectPath，不会重复分配。
+ */
+export async function bootstrapStorage(): Promise<void> {
+  if (!supportsFileStorage) {
+    contentHydrated = true
+    notifyHydrated()
+    return
+  }
+  try {
+    const root = await getUserDataDir()
+
+    // 1) 迁移：localStorage 里还带着正文、但没绑目录的作品，先落盘保住数据
+    const needDir = state.books.filter(
+      (b) => !b.projectPath && state.chapters.some((c) => c.bookId === b.id && c.content),
+    )
+    if (needDir.length) {
+      const paths = new Map(needDir.map((b) => [b.id, `${root}/books/${b.id}`]))
+      set((s) => ({
+        ...s,
+        books: s.books.map((b) => (paths.has(b.id) ? { ...b, projectPath: paths.get(b.id) } : b)),
+      }))
+      for (const b of needDir) {
+        await writeProjectToDir(paths.get(b.id)!, state, b.id)
+      }
+    }
+
+    // 2) 回填：localStorage 已剥离正文的作品，从 chapters/*.md 读回来
+    state = await hydrateContent(state)
+  } catch (e) {
+    // 落盘不可用时保持 localStorage 全量模式，不能把 UI 卡在载入态
+    console.warn('[字舟] 正文落盘不可用，本次退回 localStorage 全量模式：', e)
+  } finally {
+    contentHydrated = true
+    listeners.forEach((l) => l())
+    notifyHydrated()
+  }
 }
 
 /* ------------------------------- actions ------------------------------- */
@@ -555,6 +743,24 @@ export const actions = {
       ui: { ...s.ui, lastBookId: bookId, lastChapterId: chapters[0]?.id ?? null },
     }))
     return book
+  },
+
+  /** 新增一部参考作品（原文已由调用方落盘到 ref.dir） */
+  addReference(ref: Reference) {
+    set((s) => ({ ...s, references: [ref, ...s.references] }))
+    return ref
+  },
+
+  /** 推进分析阶段（P1 流水线写回；此处只更轻量元数据，不碰正文） */
+  updateReference(id: ID, patch: Partial<Reference>) {
+    set((s) => ({
+      ...s,
+      references: s.references.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r)),
+    }))
+  },
+
+  removeReference(id: ID) {
+    set((s) => ({ ...s, references: s.references.filter((r) => r.id !== id) }))
   },
 
   resetDemo() {
