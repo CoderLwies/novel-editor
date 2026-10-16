@@ -255,17 +255,26 @@ export const TEMPLATE_KIND_LABEL: Record<TemplateKind, string> = {
 /**
  * 借鉴模板：只包含方法与要素清单，不含原文。
  * 套用时生成的是骨架，不是抄袭素材。
+ *
+ * 注意 `sources` 是**数组**：模板库是跨书聚合的，一条结论可能来自好几本书
+ * （比如「身份反转七拍」在两本玄幻里都出现），溯源必须把每一条都指回去，
+ * 否则用户在参考池里分不清这是谁的经验。
  */
 export interface RefTemplate {
   id: ID
-  refId: ID
   kind: TemplateKind
   title: string
   summary: string
   steps: SkeletonStep[]
   /** 适用题材，跨书匹配用 */
   genres: string[]
-  provenance: ProvenanceRef
+  /** 来源（可能多本）。始终非空 —— 没有出处的模板不予收录 */
+  sources: ProvenanceRef[]
+  /**
+   * 该模板被几本书同时采用。>1 说明是跨书共性套路而非某一本书的个例，
+   * 说服力更强；界面应据此排序。
+   */
+  bookCount: number
 }
 
 export interface RefTemplates {

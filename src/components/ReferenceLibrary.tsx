@@ -16,6 +16,11 @@ import { uid } from '../utils'
 import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, AI_STAGE_LABEL, type QueueProgress, type AiStage } from '../aiqueue'
 import type { RefElements, RefPlot } from '../refschema'
 import { aiReady } from '../ai'
+import { readReferenceAnalysis } from '../reference'
+import type { RefTemplate, TemplateKind, RefStructure } from '../refschema'
+import { TEMPLATE_KIND_LABEL } from '../refschema'
+import type { ChecklistItem } from '../refderive'
+import { buildTemplates, buildComparison, COMPARE_DIMS, bestOf, diffSummary, type RefAnalysisBundle } from '../reftemplates'
 
 /** 待确认的一次导入 */
 interface PendingImport {
@@ -62,6 +67,45 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   const [toast, setToast] = useState<string | null>(null)
   const [confirmRef, setConfirmRef] = useState<{ ref: Reference; stage: AiStage } | null>(null)
   const [run, setRun] = useState<RunState | null>(null)
+  const [view, setView] = useState<'books' | 'templates' | 'compare'>('books')
+  const [bundles, setBundles] = useState<RefAnalysisBundle[]>([])
+  const [templates, setTemplates] = useState<RefTemplate[]>([])
+  const [insight, setInsight] = useState<string[] | null>(null)
+
+  // 各书的分析产物汇总；模板与对比全部由此**本地推导**，不再调用模型
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const out: RefAnalysisBundle[] = []
+      for (const r of state.references) {
+        const structure = await readReferenceAnalysis<RefStructure>(r, 'structure')
+        const plot = await readReferenceAnalysis<RefPlot>(r, 'plot')
+        const elements = await readReferenceAnalysis<RefElements>(r, 'elements')
+        const clStore = await readReferenceAnalysis<Record<string, ChecklistItem[]>>(r, 'checklists')
+        const checklists: Record<string, ChecklistItem[]> = {}
+        for (const e of elements?.settings ?? []) {
+          const key = `${e.category}:${e.subtype || '未分类'}`
+          checklists[key] = checklists[key] ?? []
+        }
+        // 清单只在存在 checklists.json 时才算数
+        if (clStore && Object.keys(clStore).length) {
+          for (const k of Object.keys(clStore)) {
+            if (elements?.settings?.some((s) => `${s.category}:${s.subtype || '未分类'}` === k)) checklists[k] = clStore[k]
+          }
+        }
+        if (structure || plot || elements) out.push({ ref: r, structure, plot, elements, checklists })
+      }
+      if (!alive) return
+      setBundles(out)
+      setTemplates(buildTemplates(out))
+      setInsight(null)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [state.references])
+
+  const tplCount = templates.length
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
@@ -236,6 +280,13 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
           <div className="brand-sub">导入他人作品做拆解分析 · 参考书只存本地目录，不混入书架</div>
         </div>
         <span style={{ flex: 1 }} />
+        <div className="lib-view-tabs">
+          <button className={view === 'books' ? 'on' : ''} onClick={() => setView('books')}>作品</button>
+          <button className={view === 'templates' ? 'on' : ''} onClick={() => setView('templates')}>
+            模板库{tplCount ? ` ${tplCount}` : ''}
+          </button>
+          <button className={view === 'compare' ? 'on' : ''} onClick={() => setView('compare')}>对比</button>
+        </div>
         <button className="btn btn-ghost btn-sm" disabled={busy} onClick={importFile}>
           <FileInput size={15} /> 导入 TXT / MD
         </button>
@@ -247,6 +298,8 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
       </div>
 
       <div className="reflib-body">
+        {view === 'books' && (
+        <>
         <div className="reflib-rail">
           <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
             全部 <span className="count">{counts.all}</span>
@@ -307,6 +360,11 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
             </div>
           )}
         </div>
+        </>
+        )}
+
+        {view === 'templates' && <TemplateView bundles={bundles} templates={templates} />}
+        {view === 'compare' && <CompareView bundles={bundles} onInsight={setInsight} insight={insight} />}
       </div>
 
       {pending && (
@@ -576,6 +634,158 @@ function CostConfirmModal({
             开始拆解（约 ¥{est.costMax}）
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* ================================ 模板库 ================================ */
+
+const TPL_ORDER: TemplateKind[] = ['plot', 'structure', 'setting']
+
+/**
+ * 模板库：全部由各书分析产物**本地转换**而来，不调用模型。
+ * 跨书共有的模板排在前面 —— 那说明是通行套路，不是个别作者的偏好。
+ */
+function TemplateView({ bundles, templates }: { bundles: RefAnalysisBundle[]; templates: RefTemplate[] }) {
+  const [kind, setKind] = useState<'all' | TemplateKind>('all')
+  const titleOf = (refId: string) => bundles.find((b) => b.ref.id === refId)?.ref.title ?? '参考书'
+
+  if (!bundles.length) {
+    return <div className="reflib-empty tpl-view"><BookMarked size={30} /><div className="reflib-empty-t">还没有可汇总的作品</div><div className="reflib-empty-d">导入并分析参考书后，它们的骨架与要素会汇入这里。</div></div>
+  }
+  const list = (kind === 'all' ? templates : templates.filter((t) => t.kind === kind))
+    .slice()
+    .sort((a, b) => b.bookCount - a.bookCount || (a.genres[0] ?? '').localeCompare(b.genres[0] ?? ''))
+  const counts = TPL_ORDER.reduce((m, k) => ({ ...m, [k]: templates.filter((t) => t.kind === k).length }), {} as Record<string, number>)
+
+  return (
+    <div className="tpl-view">
+      <div className="lib-view-tabs" style={{ marginBottom: 16 }}>
+        <button className={kind === 'all' ? 'on' : ''} onClick={() => setKind('all')}>全部 {templates.length}</button>
+        {TPL_ORDER.map((k) => (
+          <button key={k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>
+            {TEMPLATE_KIND_LABEL[k]} {counts[k] ?? 0}
+          </button>
+        ))}
+      </div>
+      {!list.length && <div className="reflib-empty"><div className="reflib-empty-t">这一类还没有模板</div><div className="reflib-empty-d">对应阶段跑完后会自动汇总进来。</div></div>}
+      <div className="tpl-grid">
+        {list.map((t) => (
+          <div className="tpl-card" key={t.id}>
+            <div className="tc-h">
+              <span className="tc-kind">{TEMPLATE_KIND_LABEL[t.kind]}</span>
+              {t.bookCount > 1 && <span className="tc-multi">{t.bookCount} 本共有</span>}
+            </div>
+            <div className="tc-title">{t.title}</div>
+            <div className="tc-sum">{t.summary}</div>
+            {t.steps.length > 0 && (
+              <div className="tc-skel">
+                {t.steps.map((s, i) => (
+                  <div className="tc-step" key={s.key || i}>
+                    <span className="tc-i">{i + 1}</span>
+                    <span className="tc-l">{s.label}</span>
+                    {s.require && <span className="tc-r">{s.require}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="tc-src">
+              {t.genres.filter(Boolean).map((g) => <span className="chip" key={g}>{g}</span>)}
+              <span className="tc-srcline">
+                溯源：{t.sources.slice(0, 2).map((s) => `${titleOf(s.refId)}${s.toChapter > s.fromChapter ? ` ${s.fromChapter}-${s.toChapter}章` : ''}`).join('、')}
+                {t.sources.length > 2 ? ` 等 ${t.sources.length} 处` : ''}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ================================ 竞品对比 ================================ */
+
+function CompareView({
+  bundles,
+  insight,
+  onInsight,
+}: {
+  bundles: RefAnalysisBundle[]
+  insight: string[] | null
+  onInsight: (v: string[] | null) => void
+}) {
+  const ready = useStore()
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const cols = buildComparison(bundles)
+
+  if (cols.length < 2) {
+    return <div className="reflib-empty cmp-view"><BookMarked size={30} /><div className="reflib-empty-t">至少需要两部作品才能对比</div><div className="reflib-empty-d">当前 {cols.length} 部。导入并分析更多参考书后，这里会横向摆出各维度差异。</div></div>
+  }
+
+  async function genInsight() {
+    setBusy(true)
+    setErr(null)
+    try {
+      const r = await actions.diffInsight(diffSummary(cols))
+      onInsight(r.insights ?? [])
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="cmp-view">
+      <table className="cmp-table">
+        <thead>
+          <tr>
+            <th className="dim-col">维度</th>
+            {cols.map((c) => (
+              <th key={c.refId}>
+                <div className="ch-t">{c.title}</div>
+                <div className="ch-m">{c.genre}</div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {COMPARE_DIMS.map((d) => {
+            const best = bestOf(cols, d)
+            return (
+              <tr key={d.key}>
+                <td className="dim-col">
+                  {d.label}
+                  {d.unit && <span className="dim-u">{d.unit}</span>}
+                  {d.weak && <span className="dim-weak">弱信号</span>}
+                </td>
+                {cols.map((c) => (
+                  <td key={c.refId} className={`num ${best.includes(c.refId) ? 'best' : ''}`}>
+                    {formatNumber(c.values[d.key] ?? 0)}
+                  </td>
+                ))}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+
+      <div className="cmp-ai">
+        <div className="eyebrow" style={{ marginBottom: 7 }}>差异解读（可选，一次轻量调用）</div>
+        <div className="note" style={{ marginBottom: 9 }}>
+          上面每一格都是本地算出来的确定值，不是估计。解读只负责组织语言 —— 它没拿到正文，无从虚构。
+        </div>
+        <button className="btn btn-ghost btn-sm" disabled={busy || !aiReady(ready.ai)} onClick={genInsight}>
+          {busy ? '解读中…' : '解读这些差异说明了什么取舍'}
+        </button>
+        {err && <div className="rp-warn" style={{ marginTop: 10 }}>{err}</div>}
+        {insight && insight.length > 0 && (
+          <ul className="cmp-insights">
+            {insight.map((t, i) => <li key={i}>{t}</li>)}
+          </ul>
+        )}
       </div>
     </div>
   )

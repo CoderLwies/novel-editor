@@ -254,3 +254,49 @@ export function sysChecklistPrompt(
     'schema: {"items":[{"key":"","label":"","why":"","keywords":[]}]}',
   ].join('\n')
 }
+
+/* ============================ 模板库与差异解读 ============================ */
+
+export interface TemplateSummaryResult {
+  templates?: { id?: string; title?: string; summary?: string }[]
+}
+
+/**
+ * 给已经成型的模板润色标题与一句话说明。
+ * 只喂骨架不喂正文，成本很低；模板若已由本地生成，这里只做「人话化」。
+ */
+export function templateSummaryPrompt(
+  kindLabel: string,
+  steps: { label: string; require: string }[],
+): string {
+  return [
+    `有一个${kindLabel}类写作模板，骨架步骤如下：`,
+    steps.map((s, i) => `${i + 1}. ${s.label}${s.require ? `（${s.require}）` : ''}`).join('\n'),
+    '',
+    '给这个模板起一个四到十字的名字，并写一句话说明它解决什么问题。',
+    '要求：只描述方法本身，不提任何具体作品、人名、地名。',
+    'schema: {"title":"","summary":""}',
+  ].join('\n')
+}
+
+export interface DiffInsight {
+  insights?: string[]
+}
+
+/**
+ * 差异解读：输入是**已经算好的确定性统计**，模型只负责组织语言与指出取舍，
+ * 不允许自己补充正文里没有的事实（这里根本没喂正文，所以它无从虚构）。
+ */
+export function diffInsightPrompt(rows: string): string {
+  return [
+    `以下是多部网文的确定性统计对比（数据由本地计算，不是估计值）：`,
+    '"""',
+    rows,
+    '"""',
+    '',
+    '逐条指出这些作品在节奏与结构上的**取舍差异**，并说明各自适合什么样的读者 / 写法。',
+    '要求：只能基于上面的数字说话，不要编造数字；指出取舍时要说清「谁换来了什么」。',
+    '给出 2–4 条，每条一句话。',
+    'schema: {"insights":[""]}',
+  ].join('\n')
+}

@@ -20,8 +20,8 @@ import { analyzeStructure, runElementExtraction, runPlotExtraction, clearFailedB
 import type { RefStructure, RefElements, RefPlot } from './refschema'
 import type { QueueProgress } from './aiqueue'
 import type { RunResult } from './aiqueue-runner'
-import { aiReady, chatJSONWithUsage } from './ai'
-import { SYS_CHECKLIST, type ChecklistResult } from './refprompt'
+import { aiReady, chatJSONWithUsage, SYS_PLANNER } from './ai'
+import { SYS_CHECKLIST, type ChecklistResult, diffInsightPrompt, type DiffInsight } from './refprompt'
 import {
   locatePrompt,
   normalizeLocate,
@@ -874,6 +874,16 @@ export const actions = {
   async checklistOnce(prompt: string): Promise<ChecklistResult> {
     if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口')
     const { data } = await chatJSONWithUsage<ChecklistResult>(state.ai, SYS_CHECKLIST, prompt, 60000)
+    return data
+  },
+
+  /**
+   * 差异解读：输入是**已经算好的确定性统计**，模型只负责组织语言与指出取舍。
+   * 不喂正文，所以它无从虚构事实。
+   */
+  async diffInsight(rows: string): Promise<DiffInsight> {
+    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口')
+    const { data } = await chatJSONWithUsage<DiffInsight>(state.ai, SYS_PLANNER, diffInsightPrompt(rows), 60000)
     return data
   },
 
