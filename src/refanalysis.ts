@@ -180,3 +180,15 @@ async function readCheckpoint(ref: Reference): Promise<QueueCheckpoint | null> {
     return null
   }
 }
+
+/**
+ * 清空失败批次记录，使它们重新入队。
+ * 对应 UI 的「重跑失败批次」——失败默认不自动重跑，避免反复烧 token。
+ */
+export async function clearFailedBatches(ref: Reference): Promise<number> {
+  const cp = await readCheckpoint(ref)
+  if (!cp || !cp.failed.length) return 0
+  const n = cp.failed.length
+  await writeCheckpoint(ref, { ...cp, failed: [], status: 'paused', updatedAt: Date.now() })
+  return n
+}

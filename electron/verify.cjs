@@ -9,10 +9,14 @@ const outDir = path.join(__dirname, '..', '.preview')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // directory dialog is stubbed so the flow runs headlessly; value swapped per step
 let stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mozhang-e2e-'))
+// 参考库导入时需要另一个存放目录；设置后 openDirectory 优先返回它
+let stubDirOverride = null
 // save dialog is stubbed too, so exports can be asserted headlessly
 const stubSavePath = path.join(stubDir, 'exported-outline.md')
 // 正文落盘的应用数据根目录：独立于 stubDir（后者会被各步骤改写）
 const userDataStub = fs.mkdtempSync(path.join(os.tmpdir(), 'mozhang-ud-'))
+// 参考库导入用的小说文件：存在时 openFile 直接返回它，避免走原生对话框
+const refNovelPath = path.join(stubDir, 'reference-novel.txt')
 
 // loopback fake OpenAI-compatible server: canned JSON per prompt kind
 function startFakeAi() {
@@ -110,8 +114,10 @@ ipcMain.handle('fs:exists', async (_e, p) => fs.existsSync(p))
 ipcMain.handle('fs:unlink', async (_e, p) => { await fsp.unlink(p); return true })
 // 正文落盘的应用数据根目录；固定独立目录，不随 stubDir 改写而漂移
 ipcMain.handle('app:userData', async () => userDataStub)
-ipcMain.handle('dialog:openDirectory', async () => stubDir)
+ipcMain.handle('dialog:openDirectory', async () => stubDirOverride ?? stubDir)
 ipcMain.handle('dialog:openFile', async (_e, filters) => {
+  // 参考库导入用例：小说文件已就位时直接返回，避免原生对话框
+  if (fs.existsSync(refNovelPath)) return refNovelPath
   const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: filters || undefined })
   return r.canceled ? null : r.filePaths[0]
 })
@@ -873,6 +879,72 @@ async function main() {
   const setStatus = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).settings.find(s=>s.name==='青云镇')?.status`)
   aiSrv4.close()
   console.log('E2E setting ai -> gen items:', genItems, '| created:', genCreated, '| card status filled:', setStatus)
+
+  // 21) 参考库：真实导入路径 → 结构统计 → 成本确认弹窗
+  // 用真实 GBK 字节写测试小说，顺带验证编码探测（utf-8 读会整篇乱码）
+  const G = (...b) => Buffer.from(b)
+  const NL = 0x0a
+  const cn = G(0xd6, 0xd0, 0xce, 0xc4) // 「中文」的 GBK 字节
+  const para = Buffer.concat([cn, cn, cn, cn])
+  const refCh1 = G(0xb5, 0xda, 0xd2, 0xbb, 0xd5, 0xc2) // 第一章
+  const refCh2 = G(0xb5, 0xda, 0xb6, 0xfe, 0xd5, 0xc2) // 第二章
+  const refCh3 = G(0xb5, 0xda, 0xc8, 0xfd, 0xd5, 0xc2) // 第三章
+  fs.writeFileSync(
+    refNovelPath,
+    Buffer.concat([
+      refCh1, G(NL), para, G(NL),
+      refCh2, G(NL), para, G(NL),
+      refCh3, G(NL), para, G(NL),
+    ]),
+  )
+  const refTargetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mozhang-ref-'))
+  stubDirOverride = refTargetDir
+
+  await js(`document.querySelector('button[title="返回书架"]')?.click()`)
+  await sleep(800)
+  const shelfHasRefEntry = await js(`!!document.querySelector('.shelf-ref-entry')`)
+  await js(`document.querySelector('.shelf-ref-entry')?.click()`)
+  await sleep(800)
+  const libEmpty = await js(`!!document.querySelector('.reflib-empty')`)
+  await js(`[...document.querySelectorAll('.reflib-head .btn')].find(b=>b.textContent.includes('导入 TXT'))?.click()`)
+  await sleep(1500)
+  const previewRows = await js(`[...document.querySelectorAll('.veil .ref-row')].map(e=>e.textContent.replace(/\s+/g,' ').trim()).join(' | ')`)
+  const encodingChip = await js(`[...document.querySelectorAll('.veil .chip')].map(e=>e.textContent).join(',') || 'none'`)
+  console.log('E2E reference lib -> shelf entry:', shelfHasRefEntry, '| empty state:', libEmpty)
+  console.log('E2E reference import preview ->', previewRows)
+  console.log('E2E reference encoding ->', encodingChip, '(GBK 文件必须识别为 gb18030)')
+
+  await js(`[...document.querySelectorAll('.veil .btn')].find(b=>b.textContent.includes('选择目录'))?.click()`)
+  await sleep(700)
+  await js(`[...document.querySelectorAll('.veil .modal-foot .btn')].find(b=>b.textContent.includes('确认入库'))?.click()`)
+  await sleep(2200)
+  const stored = await js(`(() => {
+    const s = JSON.parse(localStorage.getItem('zizhou-state-v1'))
+    const r = (s.references||[])[0]
+    return r ? { title: r.title, chapters: r.chapterCount, enc: r.sourceEncoding } : 'none'
+  })()`)
+  const diskChapters = fs.existsSync(path.join(refTargetDir, 'chapters'))
+    ? fs.readdirSync(path.join(refTargetDir, 'chapters')).length : 0
+  console.log('E2E reference stored -> meta:', JSON.stringify(stored), '| chapter files on disk:', diskChapters)
+
+  // 结构统计（纯本地）
+  await js(`[...document.querySelectorAll('.ref-card .btn')].find(b=>b.textContent.includes('结构与节奏统计'))?.click()`)
+  await sleep(2500)
+  const stageAfterStats = await js(`(JSON.parse(localStorage.getItem('zizhou-state-v1')).references||[])[0]?.stage`)
+  const structOnDisk = fs.existsSync(path.join(refTargetDir, 'analysis', 'structure.json'))
+  console.log('E2E reference stats -> stage:', stageAfterStats, '| structure.json:', structOnDisk)
+
+  // 深度拆解：打开成本确认弹窗（不点开始，避免真的消耗 token）
+  await js(`[...document.querySelectorAll('.ref-card .btn')].find(b=>b.textContent.includes('深度拆解'))?.click()`)
+  await sleep(800)
+  const costRows = await js(`[...document.querySelectorAll('.veil .ref-row')].map(e=>e.textContent.replace(/\s+/g,' ').trim()).join(' | ')`)
+  const costBtn = await js(`[...document.querySelectorAll('.veil .modal-foot .btn')].map(b=>b.textContent).join(' | ')`)
+  console.log('E2E cost confirm ->', costRows)
+  console.log('E2E cost confirm buttons ->', costBtn)
+  await js(`document.querySelector('.veil .modal-head .icon-btn')?.click()`)
+  await sleep(400)
+  const cardBtns = await js(`[...document.querySelectorAll('.ref-card .btn')].map(b=>b.textContent.trim()).join(' | ')`)
+  console.log('E2E reference card buttons ->', cardBtns)
 
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()

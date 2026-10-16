@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, FileInput, FolderInput, Trash2, BookMarked } from 'lucide-react'
+import { ArrowLeft, FileInput, FolderInput, Trash2, BookMarked, Square, RotateCcw } from 'lucide-react'
 import { useStore, actions } from '../store'
 import type { Reference, RefStage } from '../types'
 import { formatNumber } from '../utils'
@@ -13,6 +13,9 @@ import {
   type RefChapter,
 } from '../reference'
 import { uid } from '../utils'
+import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, type QueueProgress } from '../aiqueue'
+import type { RefElements } from '../refschema'
+import { aiReady } from '../ai'
 
 /** 待确认的一次导入 */
 interface PendingImport {
@@ -20,6 +23,17 @@ interface PendingImport {
   encoding: string
   split: SplitResult
   chapters: RefChapter[]
+}
+
+/** 一次深度拆解的界面状态 */
+interface RunState {
+  refId: string
+  progress: QueueProgress | null
+  abort: AbortController
+  /** 完成后展示的结果 */
+  result: RefElements | null
+  failedBatches: number
+  pausedByBudget: boolean
 }
 
 const STAGE_META: Record<RefStage, { label: string; cls: string }> = {
@@ -43,6 +57,8 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   const [busy, setBusy] = useState(false)
   const [analyzingId, setAnalyzingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [confirmRef, setConfirmRef] = useState<Reference | null>(null)
+  const [run, setRun] = useState<RunState | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
@@ -155,6 +171,47 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   }
 
   const shown = filter === 'all' ? refs : refs.filter((r) => r.stage === filter)
+
+  /* ------------------------- 阶段二：深度拆解 ------------------------- */
+
+  async function startExtraction(ref: Reference, retryFailed = false) {
+    const abort = new AbortController()
+    setConfirmRef(null)
+    setRun({ refId: ref.id, progress: null, abort, result: null, failedBatches: 0, pausedByBudget: false })
+    try {
+      const { elements, run: r } = await actions.extractElements(ref.id, {
+        signal: abort.signal,
+        retryFailed,
+        onProgress: (p) => setRun((prev) => (prev ? { ...prev, progress: p } : prev)),
+      })
+      setRun((prev) =>
+        prev
+          ? { ...prev, progress: prev.progress, result: elements, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget }
+          : prev,
+      )
+      const c = elements.characters.length
+      const s = elements.settings.length
+      const f = elements.foreshadows.length
+      flash(
+        r.pausedByBudget
+          ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；加预算后可继续`
+          : `拆解完成：角色 ${c} · 设定 ${s} · 伏笔 ${f}` +
+            (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
+      )
+    } catch (e) {
+      const msg = (e as Error).message
+      // 中断不是错误，不弹失败提示
+      if (abort.signal.aborted) flash('已中断，进度已保存，可随时继续')
+      else flash(`拆解失败：${msg}`)
+    } finally {
+      setRun((prev) => (prev && prev.progress ? prev : null))
+    }
+  }
+
+  function stopRun() {
+    run?.abort.abort()
+  }
+
   const counts = {
     all: refs.length,
     idle: refs.filter((r) => r.stage === 'idle').length,
@@ -221,7 +278,21 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
           ) : (
             <div className="reflib-grid">
               {shown.map((r) => (
-                <RefCard key={r.id} ref={r} onAnalyze={analyze} analyzing={analyzingId === r.id} onRemove={() => actions.removeReference(r.id)} />
+                <RefCard
+                  key={r.id}
+                  item={r}
+                  onAnalyze={analyze}
+                  analyzing={analyzingId === r.id}
+                  onExtract={() => setConfirmRef(r)}
+                  extracting={run?.refId === r.id && !!run.progress}
+                  running={run?.refId === r.id}
+                  onStop={stopRun}
+                  progress={run?.refId === r.id ? run.progress : null}
+                  result={run?.refId === r.id ? run.result : null}
+                  failedBatches={run?.refId === r.id ? run.failedBatches : 0}
+                  onRetryFailed={() => startExtraction(r, true)}
+                  onRemove={() => actions.removeReference(r.id)}
+                />
               ))}
             </div>
           )}
@@ -288,56 +359,198 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
         </div>
       )}
 
+      {confirmRef && (
+        <CostConfirmModal
+          refItem={confirmRef}
+          aiReady={aiReady(state.ai)}
+          onCancel={() => setConfirmRef(null)}
+          onConfirm={() => startExtraction(confirmRef)}
+        />
+      )}
+
       {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }
 
 function RefCard({
-  ref,
+  item,
   onAnalyze,
   analyzing,
+  onExtract,
+  extracting,
+  running,
+  onStop,
+  progress,
+  result,
+  failedBatches,
+  onRetryFailed,
   onRemove,
 }: {
-  ref: Reference
+  /** 注意：不要叫 `ref` —— 那是 React 保留 prop，组件内部会拿不到这个对象 */
+  item: Reference
   onAnalyze: (id: string) => void
   analyzing: boolean
+  onExtract: () => void
+  extracting: boolean
+  running: boolean
+  onStop: () => void
+  progress: QueueProgress | null
+  result: RefElements | null
+  failedBatches: number
+  onRetryFailed: () => void
   onRemove: () => void
 }) {
-  const st = STAGE_META[ref.stage]
+  const st = STAGE_META[item.stage]
+  const pct = progress ? Math.round(progressRatio(progress) * 100) : 0
   return (
     <div className="ref-card">
       <div className="ref-card-head">
-        <div className="ref-card-title">{ref.title}</div>
-        <div className="ref-card-author">{ref.author} · {ref.genre}</div>
+        <div className="ref-card-title">{item.title}</div>
+        <div className="ref-card-author">{item.author} · {item.genre}</div>
         <div className={`ref-ring ${st.cls}`}>{st.label}</div>
       </div>
       <div className="ref-card-stats">
-        <div><b>{ref.chapterCount}</b><span>章</span></div>
-        <div><b>{formatNumber(Math.round(ref.wordCount / 10000))}</b><span>万字</span></div>
-        <div><b>{ref.volumes.length}</b><span>卷</span></div>
+        <div><b>{item.chapterCount}</b><span>章</span></div>
+        <div><b>{formatNumber(Math.round(item.wordCount / 10000))}</b><span>万字</span></div>
+        <div><b>{item.volumes.length}</b><span>卷</span></div>
       </div>
+
+      {/* 运行中：进度 + 中断 */}
+      {extracting && progress && (
+        <div className="ref-card-run">
+          <div className="rcr-top">
+            <span className="rcr-txt">
+              第 {progress.doneBatches + progress.failedBatches} / {progress.totalBatches} 批
+            </span>
+            <span className="rcr-pct mono">{pct}%</span>
+          </div>
+          <div className="pbar"><i style={{ width: `${pct}%` }} /></div>
+          <div className="rcr-meta">
+            <span>已花费 ¥{progress.spentYuan.toFixed(2)}</span>
+            {progress.budgetYuan !== null && <span>/ 预算 ¥{progress.budgetYuan}</span>}
+            {progress.peak && <span className="rcr-peak">高峰时段</span>}
+            {progress.failedBatches > 0 && <span className="rcr-fail">{progress.failedBatches} 批失败</span>}
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={onStop}>
+            <Square size={13} /> 中断（进度会保留）
+          </button>
+        </div>
+      )}
+
+      {/* 结果概要 */}
+      {result && !extracting && (
+        <div className="ref-card-run">
+          <div className="rcr-result">
+            <span><b>{result.characters.length}</b> 角色</span>
+            <span><b>{result.settings.length}</b> 设定</span>
+            <span><b>{result.foreshadows.length}</b> 伏笔</span>
+          </div>
+          {failedBatches > 0 && (
+            <div className="rcr-gap">
+              <div className="rcr-gap-t">有 {failedBatches} 批抽取失败，这部分内容缺失</div>
+              <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={onRetryFailed}>
+                <RotateCcw size={13} /> 只重跑失败的批次
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!running && (
+        <div className="ref-card-act">
+          {item.stage === 'idle' ? (
+            <button className="btn btn-primary btn-sm" style={{ width: '100%', justifyContent: 'center' }}
+              disabled={analyzing} onClick={() => onAnalyze(item.id)}>
+              {analyzing ? '统计中…' : '结构与节奏统计'}
+            </button>
+          ) : (
+            <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }}
+              disabled={analyzing} onClick={() => onAnalyze(item.id)}>
+              {analyzing ? '统计中…' : '重新统计'}
+            </button>
+          )}
+          <button className="btn btn-ref btn-sm" style={{ width: '100%', justifyContent: 'center', marginTop: 7 }}
+            onClick={onExtract}>
+            深度拆解（要素抽取）
+          </button>
+          <div className="ref-card-hint">
+            {item.stage === 'idle' ? '结构统计纯本地、不花 token' : '要素抽取需 AI，会产生费用'}
+          </div>
+        </div>
+      )}
+
       <div className="ref-card-foot">
-        <span className="note ellip mono" style={{ fontSize: 11 }} title={ref.dir}>{ref.dir || '未绑定目录'}</span>
+        <span className="note ellip mono" style={{ fontSize: 11 }} title={item.dir}>{item.dir || '未绑定目录'}</span>
         <button className="icon-btn square" title="移出参考库（不删除磁盘文件）" onClick={onRemove}><Trash2 size={14} /></button>
       </div>
-      {ref.stage === 'idle' ? (
-        <div className="ref-card-act">
-          <button className="btn btn-primary btn-sm" style={{ width: '100%', justifyContent: 'center' }}
-            disabled={analyzing} onClick={() => onAnalyze(ref.id)}>
-            {analyzing ? '统计中…' : '结构与节奏统计'}
-          </button>
-          <div className="ref-card-hint">纯本地计算，不花 token · 语义拆解待后续</div>
+    </div>
+  )
+}
+
+/**
+ * 跑之前的成本确认。
+ * 必须让用户在花钱前看到量级 —— 哪怕只有几毛钱，
+ * 也不该在点下去之后才知道这会调用 72 次模型。
+ */
+function CostConfirmModal({
+  refItem,
+  aiReady: ready,
+  onCancel,
+  onConfirm,
+}: {
+  refItem: Reference
+  aiReady: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const cfg = DEFAULT_QUEUE_CONFIG
+  const avgChars = refItem.chapterCount > 0 ? refItem.wordCount / refItem.chapterCount : 0
+  const est = estimateCost(refItem.chapterCount, cfg.batchChapters, avgChars, cfg.pricing, isPeakHour())
+
+  return (
+    <div className="veil" onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}>
+      <div className="modal" style={{ width: 500 }}>
+        <div className="modal-head">
+          <span className="modal-title">深度拆解《{refItem.title}》</span>
+          <span style={{ flex: 1 }} />
+          <button className="icon-btn square" onClick={onCancel}>✕</button>
         </div>
-      ) : ref.stage === 'scanned' ? (
-        <div className="ref-card-act">
-          <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }}
-            disabled={analyzing} onClick={() => onAnalyze(ref.id)}>
-            {analyzing ? '统计中…' : '重新统计'}
-          </button>
-          <div className="ref-card-hint">节奏与卷规模已就绪 · 要素与情节链待 AI 阶段</div>
+        <div className="modal-body">
+          {!ready && (
+            <div className="rcr-gap" style={{ marginBottom: 14 }}>
+              <div className="rcr-gap-t">尚未配置 AI 接口</div>
+              <div className="note" style={{ fontSize: 11.5, marginTop: 4 }}>
+                请先回到工作台顶栏「AI 接口设置」填好 Base URL 与 Key。结构统计不需要 AI，可以先做那一步。
+              </div>
+            </div>
+          )}
+          <div className="ref-row"><span className="k">规模</span><span className="v">{refItem.chapterCount} 章 · {formatNumber(refItem.wordCount)} 字</span></div>
+          <div className="ref-row"><span className="k">批次</span><span className="v">{est.batches} 批（每批 {cfg.batchChapters} 章）</span></div>
+          <div className="ref-row">
+            <span className="k">预计花费</span>
+            <span className="v">
+              <b style={{ color: 'var(--accent)' }}>¥{est.costMin} ~ ¥{est.costMax}</b>
+            </span>
+          </div>
+          {est.peak && (
+            <div className="rcr-gap" style={{ marginTop: 10 }}>
+              <div className="rcr-gap-t">当前是 DeepSeek 高峰时段（9:00–12:00 / 14:00–18:00），同样任务费用翻倍</div>
+            </div>
+          )}
+          <div className="note" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.75 }}>
+            实际费用随模型输出长度浮动，预估给的是区间而非定值。中途可随时中断，进度会保存；
+            失败批次不会被静默跳过，运行结束会明确告诉你缺了多少。
+          </div>
         </div>
-      ) : null}
+        <div className="modal-foot">
+          <span style={{ flex: 1 }} />
+          <button className="btn btn-ghost" onClick={onCancel}>取消</button>
+          <button className="btn btn-primary" disabled={!ready} onClick={onConfirm}>
+            开始拆解（约 ¥{est.costMax}）
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
