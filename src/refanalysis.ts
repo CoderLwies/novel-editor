@@ -5,10 +5,17 @@
  * 阶段二要素抽取、阶段三情节链、阶段四模板生成需要 AI 与任务队列，
  * 会先跑阶段一作为体检——不值得深挖的书在这里就能看出来。
  */
-import type { Reference, RefStage } from './types'
-import type { RefStructure } from './refschema'
+import type { AIConfig, Reference, RefStage } from './types'
+import type { RefStructure, RefElements } from './refschema'
 import { computeStructure } from './refstats'
 import { readReferenceChapters, writeReferenceAnalysis, writeReferenceMeta } from './reference'
+import { fsLow } from './fs'
+import { planBatches, DEFAULT_QUEUE_CONFIG, type QueueCheckpoint, type QueueConfig, type QueueProgress } from './aiqueue'
+import { runQueue, type RunResult } from './aiqueue-runner'
+import { chatJSONWithUsage } from './ai'
+import { elementsPrompt, SYS_EXTRACTOR, type BatchElements } from './refprompt'
+import { ElementsMerger } from './refmerge'
+import { SCHEMA_VERSION } from './refschema'
 
 export interface AnalyzeProgress {
   /** 当前阶段 */
@@ -47,4 +54,129 @@ export async function analyzeStructure(
   // 阶段一完成 = scanned（快速扫描的本地部分已就绪，语义部分待选）
   await writeReferenceMeta({ ...marked, stage: 'scanned' })
   return { structure, stage: 'scanned' }
+}
+
+/* ======================= 阶段二：要素抽取（需 AI） ======================= */
+
+export interface ExtractOptions {
+  config?: Partial<QueueConfig>
+  ai: AIConfig
+  onProgress?: (p: QueueProgress) => void
+  signal?: AbortSignal
+}
+
+/**
+ * 阶段二：跨批次抽取角色 / 设定 / 伏笔。
+ *
+ * 每批都把「已累积的角色设定名单」带进 prompt —— 否则 72 个批次会把同一个角色
+ * 识别成 72 个人。合并时按名字+别名精确匹配，宁可留待用户手动合并也不误并。
+ */
+export async function runElementExtraction(
+  ref: Reference,
+  opts: ExtractOptions,
+): Promise<{ elements: RefElements; run: RunResult }> {
+  const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG, ...opts.config }
+  const chapters = await readReferenceChapters(ref)
+  const batches = planBatches(ref.id, 'elements', chapters.length, config.batchChapters)
+  if (!batches.length) throw new Error('没有可分析的章节')
+
+  const marked: Reference = { ...ref, stage: 'reading' }
+  await writeReferenceMeta(marked)
+
+  // 恢复断点：批大小一致才认，否则旧记录无意义
+  const saved = await readCheckpoint(marked)
+  const checkpoint = saved && saved.batchChapters === config.batchChapters ? saved : null
+
+  // 合并器按批次序号重放，保证乱序完成也能得到一致结果
+  const merger = new ElementsMerger()
+  const outputs = new Map<number, BatchElements>()
+
+  // 先重放已完成的批次，累积出「已知名单」供新批次使用
+  for (const batch of batches) {
+    const raw = await readBatchOutput(marked, batch.index)
+    if (raw) {
+      outputs.set(batch.index, raw)
+      merger.add(raw, chaptersOf(chapters, batch).map((c) => c.index))
+    }
+  }
+
+  const execute = async (batch: (typeof batches)[number]) => {
+    const texts = chaptersOf(chapters, batch)
+    const prompt = elementsPrompt(
+      ref.title,
+      ref.genre,
+      batch,
+      texts.map((c) => ({ title: c.title, text: c.content })),
+      merger.snapshot(),
+      config.maxCharsPerCall,
+    )
+    const { data, usage } = await chatJSONWithUsage<BatchElements>(
+      opts.ai,
+      SYS_EXTRACTOR,
+      prompt,
+      120000,
+    )
+    // 立刻落盘原始结果：断点恢复靠它重放，不必重新调用
+    await writeBatchOutput(marked, batch.index, data)
+    outputs.set(batch.index, data)
+    merger.add(data, texts.map((c) => c.index))
+    return { data, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }
+  }
+
+  const run = await runQueue({
+    batches,
+    config,
+    checkpoint,
+    execute,
+    onCheckpoint: (cp) => writeCheckpoint(marked, cp),
+    onProgress: (p) => opts.onProgress?.(p),
+    signal: opts.signal,
+  })
+
+  await writeReferenceMeta({ ...marked, stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
+
+  const merged = merger.finish(ref.id)
+  const elements: RefElements = {
+    schemaVersion: SCHEMA_VERSION,
+    refId: ref.id,
+    computedAt: Date.now(),
+    ...merged,
+  }
+  await writeReferenceAnalysis(marked, 'elements', elements)
+  return { elements, run }
+}
+
+function chaptersOf(chapters: Awaited<ReturnType<typeof readReferenceChapters>>, batch: { fromChapter: number; toChapter: number }) {
+  return chapters.filter((c) => c.index >= batch.fromChapter && c.index <= batch.toChapter)
+}
+
+/* ---------------------- 断点与批次原始结果的落盘 ---------------------- */
+
+const batchFile = (ref: Reference, i: number) =>
+  `${ref.dir}/analysis/raw/elements-${String(i).padStart(4, '0')}.json`
+
+const checkpointFile = (ref: Reference) => `${ref.dir}/analysis/checkpoint.json`
+
+async function writeBatchOutput(ref: Reference, i: number, data: unknown): Promise<void> {
+  await fsLow.writeFile(batchFile(ref, i), JSON.stringify(data))
+}
+
+async function readBatchOutput(ref: Reference, i: number): Promise<BatchElements | null> {
+  try {
+    return JSON.parse(await fsLow.readFile(batchFile(ref, i))) as BatchElements
+  } catch {
+    return null
+  }
+}
+
+async function writeCheckpoint(ref: Reference, cp: QueueCheckpoint): Promise<void> {
+  await fsLow.writeFile(checkpointFile(ref), JSON.stringify(cp, null, 2))
+}
+
+async function readCheckpoint(ref: Reference): Promise<QueueCheckpoint | null> {
+  try {
+    return JSON.parse(await fsLow.readFile(checkpointFile(ref))) as QueueCheckpoint
+  } catch {
+    return null
+  }
 }

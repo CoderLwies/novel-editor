@@ -54,11 +54,48 @@ export function parseJsonLoose(text: string): unknown {
 
 export const AI_TIMEOUT_MS = 30000
 
-export async function chatJSON<T>(config: AIConfig, system: string, user: string, timeoutMs = AI_TIMEOUT_MS): Promise<T> {
+/** 带 token 用量的调用结果。深度分析要按 token 计预算，必须拿得到 usage */
+export interface ChatUsage {
+  inputTokens: number
+  outputTokens: number
+}
+
+export interface ChatError extends Error {
+  /** 供队列决定是否重试 */
+  kind?: 'network' | 'ratelimit' | 'parse' | 'auth' | 'aborted' | 'unknown'
+  status?: number
+}
+
+function classify(err: unknown, status?: number): ChatError {
+  const e = err as ChatError
+  if (typeof status === 'number') {
+    if (status === 401 || status === 403) e.kind = 'auth'
+    else if (status === 429) e.kind = 'ratelimit'
+    else if (status >= 500) e.kind = 'network'
+    else e.kind = 'unknown'
+  } else if (e.name === 'AbortError') {
+    e.kind = 'aborted'
+  } else {
+    e.kind = 'network'
+  }
+  e.status = status
+  return e
+}
+
+/**
+ * chatJSON + token 用量。批量分析要按 token 计预算，chatJSON 把 usage 丢了不够用。
+ * JSON 解析失败单独归类为 parse（可能是输出被截断，值得重试一次）。
+ */
+export async function chatJSONWithUsage<T>(
+  config: AIConfig,
+  system: string,
+  user: string,
+  timeoutMs = AI_TIMEOUT_MS,
+): Promise<{ data: T; usage: ChatUsage }> {
   const url = `${config.baseUrl.trim().replace(/\/+$/, '')}/chat/completions`
-  // 超时兜底：接口挂起时不至于让所有弹窗一直 loading
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  let status: number | undefined
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -76,17 +113,32 @@ export async function chatJSON<T>(config: AIConfig, system: string, user: string
       }),
       signal: ctrl.signal,
     })
-    if (!res.ok) throw new Error(`AI 接口返回 ${res.status}`)
-    const data = await res.json()
-    const text: string = data?.choices?.[0]?.message?.content ?? ''
-    if (!text.trim()) throw new Error('AI 返回空内容')
-    return parseJsonLoose(text) as T
+    status = res.status
+    if (!res.ok) throw classify(new Error(`AI 接口返回 ${res.status}`), res.status)
+    const raw = await res.json()
+    const text: string = raw?.choices?.[0]?.message?.content ?? ''
+    const usage: ChatUsage = {
+      inputTokens: Number(raw?.usage?.prompt_tokens ?? 0),
+      outputTokens: Number(raw?.usage?.completion_tokens ?? 0),
+    }
+    if (!text.trim()) throw classify(new Error('AI 返回空内容'))
+    try {
+      return { data: parseJsonLoose(text) as T, usage }
+    } catch (pe) {
+      throw classify(new Error(`AI 返回不是有效 JSON：${(pe as Error).message}`))
+    }
   } catch (e) {
-    if (ctrl.signal.aborted) throw new Error(`AI 接口超时（${Math.round(timeoutMs / 1000)}s）`)
-    throw e
+    if (ctrl.signal.aborted) throw classify(new Error(`AI 接口超时（${Math.round(timeoutMs / 1000)}s）`))
+    if ((e as ChatError).kind) throw e
+    throw classify(e, status)
   } finally {
     clearTimeout(timer)
   }
+}
+
+export async function chatJSON<T>(config: AIConfig, system: string, user: string, timeoutMs = AI_TIMEOUT_MS): Promise<T> {
+  const { data } = await chatJSONWithUsage<T>(config, system, user, timeoutMs)
+  return data
 }
 
 export const SYS_PLANNER = '你是网文连载的outline策划，只输出符合 schema 的 JSON，不要任何解释或代码块。'
