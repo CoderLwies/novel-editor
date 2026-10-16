@@ -16,6 +16,8 @@ import type {
 import type { ProjectData } from './project'
 import { writeChapterFile, writeBookMeta, writeProjectToDir, stripContent, hydrateContent } from './project'
 import { supportsFileStorage, getUserDataDir } from './fs'
+import { analyzeStructure } from './refanalysis'
+import type { RefStructure } from './refschema'
 import { createSeedState } from './seed'
 import { DEFAULT_AI_BASE_URL, AI_MODEL } from './ai'
 import { countWords, todayKey, uid } from './utils'
@@ -757,6 +759,24 @@ export const actions = {
       ...s,
       references: s.references.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r)),
     }))
+  },
+
+  /**
+   * 阶段一：结构与节奏统计。纯本地计算，不调 AI，可重复跑。
+   * 返回统计结果，失败时抛出由调用方处理。
+   */
+  async analyzeStructure(id: ID): Promise<RefStructure> {
+    const ref = state.references.find((r) => r.id === id)
+    if (!ref) throw new Error('参考作品不存在')
+    actions.updateReference(id, { stage: 'scanning' })
+    try {
+      const { structure, stage } = await analyzeStructure(ref)
+      actions.updateReference(id, { stage })
+      return structure
+    } catch (e) {
+      actions.updateReference(id, { stage: 'idle' })
+      throw e
+    }
   },
 
   removeReference(id: ID) {

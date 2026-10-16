@@ -255,6 +255,41 @@ function volumeIndexOf(ref: Reference, chapterIndex: number): number {
   return Math.max(0, ref.volumes.length - 1)
 }
 
+/* ---------------------------- 分析产物读写 ---------------------------- */
+
+/** analysis/ 下的产物文件名。与 schema 一一对应 */
+export const ANALYSIS_FILES = {
+  structure: 'structure.json',
+  elements: 'elements.json',
+  plot: 'plot.json',
+  templates: 'templates.json',
+  checklists: 'checklists.json',
+} as const
+
+export async function writeReferenceAnalysis(
+  ref: Reference,
+  name: keyof typeof ANALYSIS_FILES,
+  data: unknown,
+): Promise<void> {
+  await fsLow.writeFile(
+    `${ref.dir}/analysis/${ANALYSIS_FILES[name]}`,
+    JSON.stringify(data, null, 2),
+  )
+}
+
+export async function readReferenceAnalysis<T>(
+  ref: Reference,
+  name: keyof typeof ANALYSIS_FILES,
+): Promise<T | null> {
+  const p = `${ref.dir}/analysis/${ANALYSIS_FILES[name]}`
+  if (!(await fsLow.exists(p))) return null
+  try {
+    return JSON.parse(await fsLow.readFile(p)) as T
+  } catch {
+    return null
+  }
+}
+
 /** 目录存在性体检：给导入向导用 */
 export function describeImport(
   split: SplitResult,

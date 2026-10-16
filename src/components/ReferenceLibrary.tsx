@@ -41,6 +41,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   const [pending, setPending] = useState<PendingImport | null>(null)
   const [targetDir, setTargetDir] = useState('')
   const [busy, setBusy] = useState(false)
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -139,6 +140,20 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
     }
   }
 
+  /* ------------------------- 阶段一：结构与节奏统计 ------------------------- */
+
+  async function analyze(refId: string) {
+    setAnalyzingId(refId)
+    try {
+      const s = await actions.analyzeStructure(refId)
+      flash(`《${refs.find((r) => r.id === refId)?.title ?? ''}》统计完成：${s.chapterCount} 章 · 平均章长 ${formatNumber(s.avgChapterWords)} 字 · ${s.rhythm.length} 个节奏窗口`)
+    } catch (e) {
+      flash(`统计失败：${(e as Error).message}`)
+    } finally {
+      setAnalyzingId(null)
+    }
+  }
+
   const shown = filter === 'all' ? refs : refs.filter((r) => r.stage === filter)
   const counts = {
     all: refs.length,
@@ -205,7 +220,9 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
             </div>
           ) : (
             <div className="reflib-grid">
-              {shown.map((r) => <RefCard key={r.id} ref={r} onRemove={() => actions.removeReference(r.id)} />)}
+              {shown.map((r) => (
+                <RefCard key={r.id} ref={r} onAnalyze={analyze} analyzing={analyzingId === r.id} onRemove={() => actions.removeReference(r.id)} />
+              ))}
             </div>
           )}
         </div>
@@ -276,7 +293,17 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   )
 }
 
-function RefCard({ ref, onRemove }: { ref: Reference; onRemove: () => void }) {
+function RefCard({
+  ref,
+  onAnalyze,
+  analyzing,
+  onRemove,
+}: {
+  ref: Reference
+  onAnalyze: (id: string) => void
+  analyzing: boolean
+  onRemove: () => void
+}) {
   const st = STAGE_META[ref.stage]
   return (
     <div className="ref-card">
@@ -294,6 +321,23 @@ function RefCard({ ref, onRemove }: { ref: Reference; onRemove: () => void }) {
         <span className="note ellip mono" style={{ fontSize: 11 }} title={ref.dir}>{ref.dir || '未绑定目录'}</span>
         <button className="icon-btn square" title="移出参考库（不删除磁盘文件）" onClick={onRemove}><Trash2 size={14} /></button>
       </div>
+      {ref.stage === 'idle' ? (
+        <div className="ref-card-act">
+          <button className="btn btn-primary btn-sm" style={{ width: '100%', justifyContent: 'center' }}
+            disabled={analyzing} onClick={() => onAnalyze(ref.id)}>
+            {analyzing ? '统计中…' : '结构与节奏统计'}
+          </button>
+          <div className="ref-card-hint">纯本地计算，不花 token · 语义拆解待后续</div>
+        </div>
+      ) : ref.stage === 'scanned' ? (
+        <div className="ref-card-act">
+          <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }}
+            disabled={analyzing} onClick={() => onAnalyze(ref.id)}>
+            {analyzing ? '统计中…' : '重新统计'}
+          </button>
+          <div className="ref-card-hint">节奏与卷规模已就绪 · 要素与情节链待 AI 阶段</div>
+        </div>
+      ) : null}
     </div>
   )
 }

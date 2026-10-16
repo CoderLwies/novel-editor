@@ -1537,3 +1537,5 @@ label.lbl {
   font-family: var(--font-editor); font-size: 26px; font-weight: 700;
 }
 .boot-text { font-size: 13px; }
+.ref-card-act { padding: 10px 16px 13px; border-top: 1px solid var(--border); }
+.ref-card-hint { font-size: 10.5px; color: var(--text-faint); margin-top: 7px; line-height: 1.6; }

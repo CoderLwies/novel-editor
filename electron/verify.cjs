@@ -107,6 +107,7 @@ ipcMain.handle('fs:mkdirp', async (_e, p) => { await fsp.mkdir(p, { recursive: t
 ipcMain.handle('fs:readdir', async (_e, p) =>
   (await fsp.readdir(p, { withFileTypes: true })).map((x) => ({ name: x.name, isDir: x.isDirectory() })))
 ipcMain.handle('fs:exists', async (_e, p) => fs.existsSync(p))
+ipcMain.handle('fs:unlink', async (_e, p) => { await fsp.unlink(p); return true })
 // 正文落盘的应用数据根目录；固定独立目录，不随 stubDir 改写而漂移
 ipcMain.handle('app:userData', async () => userDataStub)
 ipcMain.handle('dialog:openDirectory', async () => stubDir)
@@ -163,9 +164,15 @@ async function main() {
   // 新手引导（首次 seed 未 onboarded）跳过，避免遮挡后续断言
   await js(`[...document.querySelectorAll('.modal .btn')].find(b=>b.textContent.includes('跳过'))?.click()`)
   await sleep(300)
+  // 截图仅用于留档，偶发拿不到 display surface 时不应让整轮测试崩掉
   const shot = async (name) => {
-    fs.writeFileSync(path.join(outDir, name), (await win.webContents.capturePage()).toPNG())
-    console.log('saved', name)
+    try {
+      const img = await win.webContents.capturePage()
+      fs.writeFileSync(path.join(outDir, name), img.toPNG())
+      console.log('saved', name)
+    } catch (e) {
+      console.log('shot skipped', name, '-', e.message)
+    }
   }
 
   // 1) 新建作品并选择存储目录
