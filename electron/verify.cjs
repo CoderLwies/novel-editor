@@ -951,6 +951,26 @@ async function main() {
   const cardBtns = await js(`[...document.querySelectorAll('.ref-card .btn')].map(b=>b.textContent.trim()).join(' | ')`)
   console.log('E2E reference card buttons ->', cardBtns)
 
+  // 22) 写作流内的参考面板：入口可开、提示语正确（不做真实定位，那要花 token）
+  await js(`document.querySelector('button[title="返回书架"]')?.click()`)
+  await sleep(700)
+  await js(`[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('混沌神尊'))?.click()`)
+  await sleep(900)
+  const refBtn = await js(`!!document.querySelector('button[title^="情节参考"]')`)
+  await js(`document.querySelector('button[title^="情节参考"]')?.click()`)
+  await sleep(900)
+  const panel = await js(`(() => {
+    const p = document.querySelector('.refpanel')
+    if (!p) return { open: false }
+    return {
+      open: true,
+      title: p.querySelector('.rp-title')?.textContent ?? '',
+      ctx: p.querySelector('.rp-ctx')?.textContent ?? '',
+      body: p.querySelector('.refpanel-body')?.textContent?.replace(/\s+/g,' ').trim().slice(0, 90) ?? '',
+    }
+  })()`)
+  console.log('E2E reference panel -> button:', refBtn, '| panel:', JSON.stringify(panel))
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()

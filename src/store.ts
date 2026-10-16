@@ -20,8 +20,30 @@ import { analyzeStructure, runElementExtraction, runPlotExtraction, clearFailedB
 import type { RefStructure, RefElements, RefPlot } from './refschema'
 import type { QueueProgress } from './aiqueue'
 import type { RunResult } from './aiqueue-runner'
-import { aiReady } from './ai'
+import { aiReady, chatJSONWithUsage } from './ai'
+import {
+  locatePrompt,
+  normalizeLocate,
+  checkRegression,
+  rankCandidates,
+  SYS_LOCATOR,
+  type CandidateBeat,
+  type LocateResult,
+} from './reflocate'
 import { createSeedState } from './seed'
+
+/** 定位时送进 prompt 的候选上限。候选过多时按二元组重合度粗排 */
+const MAX_LOCATE_CANDIDATES = 40
+
+/** 定位结果：命中的候选拍 + 是否倒退提示 */
+export interface LocatedBeat {
+  result: LocateResult
+  /** 命中的候选；未命中时为 null */
+  picked: CandidateBeat | null
+  /** 实际送进 prompt 的候选（粗排后的顺序） */
+  candidates: CandidateBeat[]
+  regression: { regressed: boolean; note?: string }
+}
 import { DEFAULT_AI_BASE_URL, AI_MODEL } from './ai'
 import { countWords, todayKey, uid } from './utils'
 
@@ -823,6 +845,28 @@ export const actions = {
     })
     actions.updateReference(id, { stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
     return { plot, run }
+  },
+
+  /**
+   * 按已写内容定位当前情节链。
+   * 只做一次轻量调用（输入当前章 + 候选拍特征），不重跑分析。
+   */
+  async locateBeat(input: {
+    chapterTitle: string
+    content: string
+    candidates: CandidateBeat[]
+    previous?: { pickedIndex: number; title: string } | null
+  }): Promise<LocatedBeat> {
+    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口，无法定位')
+    const ranked = rankCandidates(input.candidates, input.content, MAX_LOCATE_CANDIDATES)
+    if (!ranked.length) throw new Error('没有可用的候选情节拍，请先对参考书跑一次「情节链拆解」')
+
+    const prompt = locatePrompt(input.chapterTitle, input.content, ranked, input.previous ?? null, 8000)
+    const { data } = await chatJSONWithUsage<LocateResult>(state.ai, SYS_LOCATOR, prompt, 60000)
+    const normalized = normalizeLocate(data, ranked)
+    const picked = normalized.pickedIndex >= 0 ? ranked[normalized.pickedIndex] : null
+    const regression = checkRegression(input.previous ?? null, normalized)
+    return { result: normalized, picked, candidates: ranked, regression }
   },
 
   removeReference(id: ID) {

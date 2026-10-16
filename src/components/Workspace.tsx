@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import {
   ChevronLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
-  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus, Command, HelpCircle, X,
+  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus, Command, HelpCircle, X, BookMarked,
 } from 'lucide-react'
 import { useStore, actions, volumesOf } from '../store'
 import type { Book, Chapter } from '../types'
@@ -12,6 +12,7 @@ import ChapterTree from './ChapterTree'
 import Editor from './Editor'
 import OutlineView from './OutlineView'
 import SidePanel, { type SideTab } from './SidePanel'
+import ReferencePanel from './ReferencePanel'
 import StatsBar from './StatsBar'
 import FileMenu from './FileMenu'
 import { AiSettingsModal } from './AiModals'
@@ -26,6 +27,7 @@ export default function Workspace({ book }: { book: Book }) {
   const [sideTab, setSideTab] = useState<SideTab>('outline')
   const [showTree, setShowTree] = useState(true)
   const [showSide, setShowSide] = useState(true)
+const [showRefPanel, setShowRefPanel] = useState(false)
   const [mode, setMode] = useState<'write' | 'outline'>('write')
   const [showAi, setShowAi] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
@@ -205,6 +207,14 @@ export default function Workspace({ book }: { book: Book }) {
         </button>
 
         <button
+          className={`icon-btn square ${showRefPanel ? 'active' : ''}`}
+          title="情节参考：按你已写的内容定位当前在情节链的哪一拍"
+          onClick={() => setShowRefPanel((v) => !v)}
+        >
+          <BookMarked size={17} />
+        </button>
+
+        <button
           className="icon-btn square"
           title={theme === 'dark' ? '切换到明亮主题' : '切换到暗黑主题'}
           onClick={() => actions.setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -244,6 +254,15 @@ export default function Workspace({ book }: { book: Book }) {
             onTabChange={setSideTab}
             filter={sideFilter}
             onFilterChange={setSideFilter}
+          />
+        )}
+        {showRefPanel && !focusMode && currentChapter && (
+          <ReferencePanel
+            chapter={currentChapter}
+            onClose={() => setShowRefPanel(false)}
+            onAppend={(t) => {
+              actions.updateChapter(currentChapter.id, { synopsis: (currentChapter.synopsis + '\n' + t).trim() })
+            }}
           />
         )}
       </div>
