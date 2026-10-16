@@ -13,6 +13,8 @@ import Editor from './Editor'
 import OutlineView from './OutlineView'
 import SidePanel, { type SideTab } from './SidePanel'
 import ReferencePanel from './ReferencePanel'
+import VolumeReferencePanel from './VolumeReferencePanel'
+import SettingReferencePanel from './SettingReferencePanel'
 import StatsBar from './StatsBar'
 import FileMenu from './FileMenu'
 import { AiSettingsModal } from './AiModals'
@@ -28,6 +30,8 @@ export default function Workspace({ book }: { book: Book }) {
   const [showTree, setShowTree] = useState(true)
   const [showSide, setShowSide] = useState(true)
 const [showRefPanel, setShowRefPanel] = useState(false)
+/** 参考面板的作用对象：卷纲/设定传 id；章纲（默认）不传 */
+const [refTarget, setRefTarget] = useState<{ kind: 'volume' | 'setting'; targetId: string } | null>(null)
   const [mode, setMode] = useState<'write' | 'outline'>('write')
   const [showAi, setShowAi] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
@@ -101,6 +105,15 @@ const [showRefPanel, setShowRefPanel] = useState(false)
     })
     return sorted[0]
   }, [state.ui.lastChapterId, bookChapters, volumes])
+
+  // 参考面板的作用对象：卷纲/设定按 id 取；章纲模式（refTarget 为 null）用当前章
+  const volumeTarget =
+    refTarget?.kind === 'volume' ? volumes.find((v) => v.id === refTarget.targetId) : undefined
+  const volumeChapterCount = volumeTarget
+    ? bookChapters.filter((c) => c.volumeId === volumeTarget.id).length
+    : 0
+  const settingTarget =
+    refTarget?.kind === 'setting' ? state.settings.find((s) => s.id === refTarget.targetId) : undefined
 
   const theme = state.ui.theme
   const fontSize = state.ui.fontSize
@@ -207,9 +220,12 @@ const [showRefPanel, setShowRefPanel] = useState(false)
         </button>
 
         <button
-          className={`icon-btn square ${showRefPanel ? 'active' : ''}`}
+          className={`icon-btn square ${showRefPanel && !refTarget ? 'active' : ''}`}
           title="情节参考：按你已写的内容定位当前在情节链的哪一拍"
-          onClick={() => setShowRefPanel((v) => !v)}
+          onClick={() => {
+            setRefTarget(null) // 切回章纲视角
+            setShowRefPanel((v) => !v)
+          }}
         >
           <BookMarked size={17} />
         </button>
@@ -254,16 +270,49 @@ const [showRefPanel, setShowRefPanel] = useState(false)
             onTabChange={setSideTab}
             filter={sideFilter}
             onFilterChange={setSideFilter}
-          />
-        )}
-        {showRefPanel && !focusMode && currentChapter && (
-          <ReferencePanel
-            chapter={currentChapter}
-            onClose={() => setShowRefPanel(false)}
-            onAppend={(t) => {
-              actions.updateChapter(currentChapter.id, { synopsis: (currentChapter.synopsis + '\n' + t).trim() })
+            onOpenRef={(kind, targetId) => {
+              setRefTarget({ kind, targetId })
+              setShowRefPanel(true)
             }}
           />
+        )}
+        {/* 三个参考面板互斥：卷纲 / 设定 / 章纲，由 refTarget 决定 */}
+        {showRefPanel && !focusMode && (
+          <>
+            {refTarget?.kind === 'volume' && volumeTarget && (
+              <VolumeReferencePanel
+                volumeTitle={volumeTarget.title}
+                chapterCount={volumeChapterCount}
+                hasOutline={volumeChapterCount > 0}
+                onClose={() => setShowRefPanel(false)}
+                onAppend={(t) =>
+                  actions.updateVolume(volumeTarget.id, {
+                    synopsis: (volumeTarget.synopsis + '\n' + t).trim(),
+                  })
+                }
+              />
+            )}
+            {refTarget?.kind === 'setting' && settingTarget && (
+              <SettingReferencePanel
+                setting={settingTarget}
+                onClose={() => setShowRefPanel(false)}
+                onAppend={(t) =>
+                  actions.updateSetting(settingTarget.id, { desc: (settingTarget.desc + '\n' + t).trim() })
+                }
+              />
+            )}
+            {!refTarget && currentChapter && (
+              <ReferencePanel
+                chapter={currentChapter}
+                onClose={() => setShowRefPanel(false)}
+                onAppend={(t) =>
+                  actions.updateChapter(currentChapter.id, {
+                    synopsis: (currentChapter.synopsis + '\n' + t).trim(),
+                  })
+                }
+              />
+            )}
+          </>
         )}
       </div>
 

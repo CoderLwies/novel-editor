@@ -214,3 +214,43 @@ export function arcPrompt(bookTitle: string, genre: string, beats: BeatBrief[]):
     '"skeleton":{"steps":[{"key":"","label":"","require":""}],"suggestedSpan":20}}]}',
   ].join('\n')
 }
+
+/* ========================== 要素清单：设定类型的共性 ========================== */
+
+export const SYS_CHECKLIST =
+  '你是网文设定分析师，从同类设定里归纳出「这一类必须具备哪些要素」。' +
+  '只输出符合 schema 的 JSON，不要解释或代码块。只依据给定设定归纳，不得凭空发明。'
+
+export interface ChecklistResult {
+  items?: { key?: string; label?: string; why?: string; keywords?: string[] }[]
+}
+
+/**
+ * 从若干条同类设定归纳出要素清单。
+ *
+ * 关键：**keywords 是给本地判定用的**，让「我有没有写到这一项」变成可解释的字符串匹配，
+ * 而不是再调一次模型去判断 —— 后者既花钱又可能给出无法追溯的结论。
+ */
+export function sysChecklistPrompt(
+  categoryLabel: string,
+  subtypeLabel: string,
+  items: { name: string; desc: string; status: string; refTitle: string }[],
+): string {
+  const body = items
+    .map((s) => `《${s.refTitle}》${s.name}${s.status ? `（${s.status}）` : ''}\n${s.desc || '（无描述）'}`)
+    .join('\n\n')
+  return [
+    `以下是若干条${categoryLabel}类设定，属于「${subtypeLabel}」这一子类型：`,
+    '"""',
+    body,
+    '"""',
+    '',
+    '归纳出这一子类型**必须具备**的要素，能长期立住、且每条都说清「为什么需要它」：',
+    '- label：要素名（四到八字）',
+    '- why：缺了它会怎样。要具体，不要「很重要」这种空话',
+    '- keywords：2–5 个关键词，用来判断这一项**有没有被写到**。' +
+    '取那种只要写了就一定会出现的字词（如「祖制」「补给」「内应」），不要取太通用的词',
+    '',
+    'schema: {"items":[{"key":"","label":"","why":"","keywords":[]}]}',
+  ].join('\n')
+}

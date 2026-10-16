@@ -971,6 +971,35 @@ async function main() {
   })()`)
   console.log('E2E reference panel -> button:', refBtn, '| panel:', JSON.stringify(panel))
 
+  // 23) 卷纲与设定的「参」入口：都应能打开对应面板
+  await js(`document.querySelector('.refpanel-head .icon-btn')?.click()`)
+  await sleep(400)
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='大纲')?.click()`)
+  await sleep(600)
+  const volRefBtn = await js(`!!document.querySelector('.ref-open-btn')`)
+  await js(`document.querySelector('.ref-open-btn')?.click()`)
+  await sleep(900)
+  const volPanel = await js(`(() => {
+    const p = document.querySelector('.refpanel')
+    return p ? { title: p.querySelector('.rp-title')?.textContent ?? '', ctx: p.querySelector('.rp-ctx')?.textContent ?? '',
+                 body: p.querySelector('.refpanel-body')?.textContent?.replace(/\\s+/g,' ').trim().slice(0, 80) ?? '' } : { open: false }
+  })()`)
+  console.log('E2E volume ref panel -> button:', volRefBtn, '| panel:', JSON.stringify(volPanel))
+  await js(`document.querySelector('.refpanel-head .icon-btn')?.click()`)
+  await sleep(400)
+
+  await js(`[...document.querySelectorAll('.side-tab')].find(t=>t.textContent==='设定')?.click()`)
+  await sleep(600)
+  const setRefBtn = await js(`!!document.querySelector('.card .ref-open-btn')`)
+  await js(`document.querySelector('.card .ref-open-btn')?.click()`)
+  await sleep(900)
+  const setPanel = await js(`(() => {
+    const p = document.querySelector('.refpanel')
+    return p ? { title: p.querySelector('.rp-title')?.textContent ?? '', ctx: p.querySelector('.rp-ctx')?.textContent ?? '',
+                 body: p.querySelector('.refpanel-body')?.textContent?.replace(/\\s+/g,' ').trim().slice(0, 80) ?? '' } : { open: false }
+  })()`)
+  console.log('E2E setting ref panel -> button:', setRefBtn, '| panel:', JSON.stringify(setPanel))
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()

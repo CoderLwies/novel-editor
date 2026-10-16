@@ -21,6 +21,7 @@ import type { RefStructure, RefElements, RefPlot } from './refschema'
 import type { QueueProgress } from './aiqueue'
 import type { RunResult } from './aiqueue-runner'
 import { aiReady, chatJSONWithUsage } from './ai'
+import { SYS_CHECKLIST, type ChecklistResult } from './refprompt'
 import {
   locatePrompt,
   normalizeLocate,
@@ -867,6 +868,13 @@ export const actions = {
     const picked = normalized.pickedIndex >= 0 ? ranked[normalized.pickedIndex] : null
     const regression = checkRegression(input.previous ?? null, normalized)
     return { result: normalized, picked, candidates: ranked, regression }
+  },
+
+  /** 单次轻量调用：归纳要素清单。刻意不走队列 —— 这不是批量任务 */
+  async checklistOnce(prompt: string): Promise<ChecklistResult> {
+    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口')
+    const { data } = await chatJSONWithUsage<ChecklistResult>(state.ai, SYS_CHECKLIST, prompt, 60000)
+    return data
   },
 
   removeReference(id: ID) {

@@ -31,6 +31,7 @@ export default function SidePanel({
   onTabChange,
   filter,
   onFilterChange,
+  onOpenRef,
 }: {
   book: Book
   chapter?: Chapter
@@ -38,6 +39,8 @@ export default function SidePanel({
   onTabChange: (t: SideTab) => void
   filter: string
   onFilterChange: (v: string) => void
+  /** 打开参考面板：卷纲传 volumeId，设定传 settingId */
+  onOpenRef?: (kind: 'volume' | 'setting', targetId: ID) => void
 }) {
   const tabs: { key: SideTab; label: string }[] = [
     { key: 'outline', label: '大纲' },
@@ -56,9 +59,9 @@ export default function SidePanel({
         ))}
       </div>
 
-      {tab === 'outline' && <OutlineTab book={book} chapter={chapter} />}
+      {tab === 'outline' && <OutlineTab book={book} chapter={chapter} onOpenVolumeRef={onOpenRef ? (id) => onOpenRef('volume', id) : undefined} />}
       {tab === 'characters' && <CharactersTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
-      {tab === 'settings' && <SettingsTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
+      {tab === 'settings' && <SettingsTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} onOpenSettingRef={onOpenRef ? (id) => onOpenRef('setting', id) : undefined} />}
       {tab === 'foreshadow' && <ForeshadowTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
 
       <div className="side-add">
@@ -85,7 +88,7 @@ export default function SidePanel({
   )
 }
 
-function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
+function OutlineTab({ book, chapter, onOpenVolumeRef }: { book: Book; chapter?: Chapter; onOpenVolumeRef?: (volumeId: ID) => void }) {
   const state = useStore()
   const volumes = volumesOf(state, book.id)
   const [openVols, setOpenVols] = useState<Set<ID>>(() => new Set(volumes.map((v) => v.id)))
@@ -153,6 +156,18 @@ function OutlineTab({ book, chapter }: { book: Book; chapter?: Chapter }) {
               >
                 <Wand2 size={13} />
               </button>
+              {onOpenVolumeRef && (
+                <button
+                  className="ref-open-btn"
+                  title="卷纲参考：看同题材每卷的情节配比与可借骨架"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenVolumeRef(v.id)
+                  }}
+                >
+                  参
+                </button>
+              )}
               <button
                 className="icon-btn"
                 title="在本卷新建计划章"
@@ -703,7 +718,7 @@ function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; fil
   )
 }
 
-function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
+function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef }: { bookId: string; filter: string; onFilterChange: (v: string) => void; onOpenSettingRef?: (settingId: ID) => void }) {
   const state = useStore()
   const [showGen, setShowGen] = useState(false)
   const [showAiSettings, setShowAiSettings] = useState(false)
@@ -777,6 +792,10 @@ function SettingsTab({ bookId, filter, onFilterChange }: { bookId: string; filte
                     <button className="icon-btn" title="AI 补全设定" disabled={aiBusy || !aiReady(state.ai)} onClick={() => void runCardAi(it)}>
                       {aiBusy && aiTarget === it.id ? <Loader2 size={12} className="spin" /> : <Wand2 size={12} />}
                     </button>
+                    {onOpenSettingRef && (
+                      <button className="ref-open-btn" title="设定参考：同类设定的要素清单与缺口检查"
+                        onClick={() => onOpenSettingRef(it.id)}>参</button>
+                    )}
                   </div>
                   <input className="inline-edit" style={{ fontSize: 11.5, color: 'var(--accent)', marginTop: 4 }}
                     value={it.status ?? ''}
