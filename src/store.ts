@@ -16,8 +16,8 @@ import type {
 import type { ProjectData } from './project'
 import { writeChapterFile, writeBookMeta, writeProjectToDir, stripContent, hydrateContent } from './project'
 import { supportsFileStorage, getUserDataDir } from './fs'
-import { analyzeStructure, runElementExtraction, clearFailedBatches } from './refanalysis'
-import type { RefStructure, RefElements } from './refschema'
+import { analyzeStructure, runElementExtraction, runPlotExtraction, clearFailedBatches } from './refanalysis'
+import type { RefStructure, RefElements, RefPlot } from './refschema'
 import type { QueueProgress } from './aiqueue'
 import type { RunResult } from './aiqueue-runner'
 import { aiReady } from './ai'
@@ -794,7 +794,7 @@ export const actions = {
     if (!ref) throw new Error('参考作品不存在')
     if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口，请先在顶栏「AI 接口设置」里填好 Base URL 与 Key')
 
-    if (opts.retryFailed) await clearFailedBatches(ref)
+    if (opts.retryFailed) await clearFailedBatches(ref, 'elements')
 
     const { elements, run } = await runElementExtraction(ref, {
       ai: state.ai,
@@ -803,6 +803,26 @@ export const actions = {
     })
     actions.updateReference(id, { stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
     return { elements, run }
+  },
+
+  /** 阶段三：情节链拆解。需先有结构统计（拿到章序），但不必等要素抽取完成 */
+  async extractPlot(
+    id: ID,
+    opts: { onProgress?: (p: QueueProgress) => void; signal?: AbortSignal; retryFailed?: boolean } = {},
+  ): Promise<{ plot: RefPlot; run: RunResult }> {
+    const ref = state.references.find((r) => r.id === id)
+    if (!ref) throw new Error('参考作品不存在')
+    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口，请先在顶栏「AI 接口设置」里填好 Base URL 与 Key')
+
+    if (opts.retryFailed) await clearFailedBatches(ref, 'plot')
+
+    const { plot, run } = await runPlotExtraction(ref, {
+      ai: state.ai,
+      onProgress: opts.onProgress,
+      signal: opts.signal,
+    })
+    actions.updateReference(id, { stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
+    return { plot, run }
   },
 
   removeReference(id: ID) {

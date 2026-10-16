@@ -1552,3 +1552,5 @@ label.lbl {
 .rcr-result b { font-family: var(--font-mono); font-size: 14px; color: var(--text); margin-right: 3px; }
 .rcr-gap { margin-top: 10px; padding: 9px 11px; border-radius: var(--radius-sm); background: rgba(224,70,90,.08); border: 1px solid rgba(224,70,90,.26); }
 .rcr-gap .rcr-gap-t { font-size: 11.5px; color: var(--danger); font-weight: 600; margin-bottom: 7px; }
+.ref-card-btns { display: flex; gap: 7px; margin-top: 7px; }
+.ref-card-btns .btn { flex: 1; justify-content: center; }

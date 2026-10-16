@@ -6,15 +6,16 @@
  * 会先跑阶段一作为体检——不值得深挖的书在这里就能看出来。
  */
 import type { AIConfig, Reference, RefStage } from './types'
-import type { RefStructure, RefElements } from './refschema'
+import type { RefStructure, RefElements, RefPlot, PlotArc } from './refschema'
 import { computeStructure } from './refstats'
 import { readReferenceChapters, writeReferenceAnalysis, writeReferenceMeta } from './reference'
 import { fsLow } from './fs'
-import { planBatches, DEFAULT_QUEUE_CONFIG, type QueueCheckpoint, type QueueConfig, type QueueProgress } from './aiqueue'
+import { planBatches, DEFAULT_QUEUE_CONFIG, type BatchTask, type AiStage, type QueueCheckpoint, type QueueConfig, type QueueProgress } from './aiqueue'
 import { runQueue, type RunResult } from './aiqueue-runner'
 import { chatJSONWithUsage } from './ai'
-import { elementsPrompt, SYS_EXTRACTOR, type BatchElements } from './refprompt'
+import { elementsPrompt, SYS_EXTRACTOR, plotPrompt, arcPrompt, SYS_PLOT, type BatchElements, type BatchPlot, type ArcResult } from './refprompt'
 import { ElementsMerger } from './refmerge'
+import { BeatCollector, assembleArcs } from './refbeats'
 import { SCHEMA_VERSION } from './refschema'
 
 export interface AnalyzeProgress {
@@ -84,7 +85,7 @@ export async function runElementExtraction(
   await writeReferenceMeta(marked)
 
   // 恢复断点：批大小一致才认，否则旧记录无意义
-  const saved = await readCheckpoint(marked)
+  const saved = await readCheckpoint(marked, 'elements')
   const checkpoint = saved && saved.batchChapters === config.batchChapters ? saved : null
 
   // 合并器按批次序号重放，保证乱序完成也能得到一致结果
@@ -93,7 +94,7 @@ export async function runElementExtraction(
 
   // 先重放已完成的批次，累积出「已知名单」供新批次使用
   for (const batch of batches) {
-    const raw = await readBatchOutput(marked, batch.index)
+    const raw = await readBatchOutput<BatchElements>(marked, 'elements', batch.index)
     if (raw) {
       outputs.set(batch.index, raw)
       merger.add(raw, chaptersOf(chapters, batch).map((c) => c.index))
@@ -117,7 +118,7 @@ export async function runElementExtraction(
       120000,
     )
     // 立刻落盘原始结果：断点恢复靠它重放，不必重新调用
-    await writeBatchOutput(marked, batch.index, data)
+    await writeBatchOutput(marked, 'elements', batch.index, data)
     outputs.set(batch.index, data)
     merger.add(data, texts.map((c) => c.index))
     return { data, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }
@@ -128,7 +129,7 @@ export async function runElementExtraction(
     config,
     checkpoint,
     execute,
-    onCheckpoint: (cp) => writeCheckpoint(marked, cp),
+    onCheckpoint: (cp) => writeCheckpoint(marked, 'elements', cp),
     onProgress: (p) => opts.onProgress?.(p),
     signal: opts.signal,
   })
@@ -146,36 +147,120 @@ export async function runElementExtraction(
   return { elements, run }
 }
 
+/* ====================== 阶段三：情节链拆解（需 AI） ====================== */
+
+/**
+ * 阶段三：逐批判定情节拍 → 跨批合并 → 一次全局调用组织成叙事线与骨架。
+ *
+ * 最后那步只喂拍摘要、不喂正文，所以全书只多花一次调用。
+ */
+export async function runPlotExtraction(
+  ref: Reference,
+  opts: ExtractOptions,
+): Promise<{ plot: RefPlot; run: RunResult }> {
+  const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG, ...opts.config }
+  const chapters = await readReferenceChapters(ref)
+  const batches = planBatches(ref.id, 'plot', chapters.length, config.batchChapters)
+  if (!batches.length) throw new Error('没有可分析的章节')
+
+  const marked: Reference = { ...ref, stage: 'reading' }
+  await writeReferenceMeta(marked)
+
+  const saved = await readCheckpoint(marked, 'plot')
+  const checkpoint = saved && saved.batchChapters === config.batchChapters ? saved : null
+
+  const collector = new BeatCollector()
+
+  // 重放已完成的批次，恢复出有序拍列表
+  for (const batch of batches) {
+    const raw = await readBatchOutput<BatchPlot>(marked, 'plot', batch.index)
+    if (raw) collector.add(raw, batch.fromChapter, batch.toChapter)
+  }
+
+  const execute = async (batch: BatchTask) => {
+    const texts = chaptersOf(chapters, batch)
+    const prompt = plotPrompt(
+      ref.title,
+      ref.genre,
+      batch,
+      texts.map((c) => ({ title: c.title, text: c.content })),
+      collector.lastBrief(),
+      config.maxCharsPerCall,
+    )
+    const { data, usage } = await chatJSONWithUsage<BatchPlot>(opts.ai, SYS_PLOT, prompt, 120000)
+    await writeBatchOutput(marked, 'plot', batch.index, data)
+    collector.add(data, batch.fromChapter, batch.toChapter)
+    return { data, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }
+  }
+
+  const run = await runQueue({
+    batches,
+    config,
+    checkpoint,
+    execute,
+    onCheckpoint: (cp) => writeCheckpoint(marked, 'plot', cp),
+    onProgress: (p) => opts.onProgress?.(p),
+    signal: opts.signal,
+  })
+
+  const beats = collector.finish(ref.id)
+  const briefs = collector.briefs()
+
+  // 组织叙事线与骨架：只喂拍摘要，不喂正文
+  let arcs: PlotArc[] = []
+  if (beats.length) {
+    const { data } = await chatJSONWithUsage<ArcResult>(
+      opts.ai,
+      SYS_PLOT,
+      arcPrompt(ref.title, ref.genre, briefs),
+      60000,
+    )
+    arcs = assembleArcs(ref.id, beats, data, briefs)
+  }
+
+  const plot: RefPlot = {
+    schemaVersion: SCHEMA_VERSION,
+    refId: ref.id,
+    computedAt: Date.now(),
+    beats,
+    arcs,
+  }
+  await writeReferenceAnalysis(marked, 'plot', plot)
+  await writeReferenceMeta({ ...marked, stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
+  return { plot, run }
+}
+
 function chaptersOf(chapters: Awaited<ReturnType<typeof readReferenceChapters>>, batch: { fromChapter: number; toChapter: number }) {
   return chapters.filter((c) => c.index >= batch.fromChapter && c.index <= batch.toChapter)
 }
 
 /* ---------------------- 断点与批次原始结果的落盘 ---------------------- */
 
-const batchFile = (ref: Reference, i: number) =>
-  `${ref.dir}/analysis/raw/elements-${String(i).padStart(4, '0')}.json`
+const batchFile = (ref: Reference, stage: AiStage, i: number) =>
+  `${ref.dir}/analysis/raw/${stage}-${String(i).padStart(4, '0')}.json`
 
-const checkpointFile = (ref: Reference) => `${ref.dir}/analysis/checkpoint.json`
+/** 断点按阶段分文件：elements 与 plot 各自独立，互不覆盖 */
+const checkpointFile = (ref: Reference, stage: AiStage) => `${ref.dir}/analysis/checkpoint-${stage}.json`
 
-async function writeBatchOutput(ref: Reference, i: number, data: unknown): Promise<void> {
-  await fsLow.writeFile(batchFile(ref, i), JSON.stringify(data))
+async function writeBatchOutput(ref: Reference, stage: AiStage, i: number, data: unknown): Promise<void> {
+  await fsLow.writeFile(batchFile(ref, stage, i), JSON.stringify(data))
 }
 
-async function readBatchOutput(ref: Reference, i: number): Promise<BatchElements | null> {
+async function readBatchOutput<T>(ref: Reference, stage: AiStage, i: number): Promise<T | null> {
   try {
-    return JSON.parse(await fsLow.readFile(batchFile(ref, i))) as BatchElements
+    return JSON.parse(await fsLow.readFile(batchFile(ref, stage, i))) as T
   } catch {
     return null
   }
 }
 
-async function writeCheckpoint(ref: Reference, cp: QueueCheckpoint): Promise<void> {
-  await fsLow.writeFile(checkpointFile(ref), JSON.stringify(cp, null, 2))
+async function writeCheckpoint(ref: Reference, stage: AiStage, cp: QueueCheckpoint): Promise<void> {
+  await fsLow.writeFile(checkpointFile(ref, stage), JSON.stringify(cp, null, 2))
 }
 
-async function readCheckpoint(ref: Reference): Promise<QueueCheckpoint | null> {
+async function readCheckpoint(ref: Reference, stage: AiStage): Promise<QueueCheckpoint | null> {
   try {
-    return JSON.parse(await fsLow.readFile(checkpointFile(ref))) as QueueCheckpoint
+    return JSON.parse(await fsLow.readFile(checkpointFile(ref, stage))) as QueueCheckpoint
   } catch {
     return null
   }
@@ -185,10 +270,10 @@ async function readCheckpoint(ref: Reference): Promise<QueueCheckpoint | null> {
  * 清空失败批次记录，使它们重新入队。
  * 对应 UI 的「重跑失败批次」——失败默认不自动重跑，避免反复烧 token。
  */
-export async function clearFailedBatches(ref: Reference): Promise<number> {
-  const cp = await readCheckpoint(ref)
+export async function clearFailedBatches(ref: Reference, stage: AiStage = 'elements'): Promise<number> {
+  const cp = await readCheckpoint(ref, stage)
   if (!cp || !cp.failed.length) return 0
   const n = cp.failed.length
-  await writeCheckpoint(ref, { ...cp, failed: [], status: 'paused', updatedAt: Date.now() })
+  await writeCheckpoint(ref, stage, { ...cp, failed: [], status: 'paused', updatedAt: Date.now() })
   return n
 }

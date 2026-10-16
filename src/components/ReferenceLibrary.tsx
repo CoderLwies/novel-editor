@@ -13,8 +13,8 @@ import {
   type RefChapter,
 } from '../reference'
 import { uid } from '../utils'
-import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, type QueueProgress } from '../aiqueue'
-import type { RefElements } from '../refschema'
+import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, AI_STAGE_LABEL, type QueueProgress, type AiStage } from '../aiqueue'
+import type { RefElements, RefPlot } from '../refschema'
 import { aiReady } from '../ai'
 
 /** 待确认的一次导入 */
@@ -28,10 +28,13 @@ interface PendingImport {
 /** 一次深度拆解的界面状态 */
 interface RunState {
   refId: string
+  /** 区分要素抽取与情节链，两者可分别跑 */
+  stage: AiStage
   progress: QueueProgress | null
   abort: AbortController
   /** 完成后展示的结果 */
   result: RefElements | null
+  plot: RefPlot | null
   failedBatches: number
   pausedByBudget: boolean
 }
@@ -57,7 +60,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   const [busy, setBusy] = useState(false)
   const [analyzingId, setAnalyzingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  const [confirmRef, setConfirmRef] = useState<Reference | null>(null)
+  const [confirmRef, setConfirmRef] = useState<{ ref: Reference; stage: AiStage } | null>(null)
   const [run, setRun] = useState<RunState | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -174,30 +177,35 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
 
   /* ------------------------- 阶段二：深度拆解 ------------------------- */
 
-  async function startExtraction(ref: Reference, retryFailed = false) {
+  async function startExtraction(ref: Reference, stage: AiStage, retryFailed = false) {
     const abort = new AbortController()
     setConfirmRef(null)
-    setRun({ refId: ref.id, progress: null, abort, result: null, failedBatches: 0, pausedByBudget: false })
+    setRun({ refId: ref.id, stage, progress: null, abort, result: null, plot: null, failedBatches: 0, pausedByBudget: false })
+    const onProgress = (p: QueueProgress) => setRun((prev) => (prev ? { ...prev, progress: p } : prev))
     try {
-      const { elements, run: r } = await actions.extractElements(ref.id, {
-        signal: abort.signal,
-        retryFailed,
-        onProgress: (p) => setRun((prev) => (prev ? { ...prev, progress: p } : prev)),
-      })
-      setRun((prev) =>
-        prev
-          ? { ...prev, progress: prev.progress, result: elements, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget }
-          : prev,
-      )
-      const c = elements.characters.length
-      const s = elements.settings.length
-      const f = elements.foreshadows.length
-      flash(
-        r.pausedByBudget
-          ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；加预算后可继续`
-          : `拆解完成：角色 ${c} · 设定 ${s} · 伏笔 ${f}` +
-            (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
-      )
+      if (stage === 'elements') {
+        const { elements, run: r } = await actions.extractElements(ref.id, { signal: abort.signal, retryFailed, onProgress })
+        setRun((prev) => (prev ? { ...prev, result: elements, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
+        const c = elements.characters.length
+        const s = elements.settings.length
+        const f = elements.foreshadows.length
+        flash(
+          r.pausedByBudget
+            ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；加预算后可继续`
+            : `要素抽取完成：角色 ${c} · 设定 ${s} · 伏笔 ${f}` +
+              (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
+        )
+      } else {
+        const { plot, run: r } = await actions.extractPlot(ref.id, { signal: abort.signal, retryFailed, onProgress })
+        setRun((prev) => (prev ? { ...prev, plot, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
+        const sk = plot.arcs.filter((a) => a.skeleton).length
+        flash(
+          r.pausedByBudget
+            ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；加预算后可继续`
+            : `情节链完成：${plot.beats.length} 拍 · ${plot.arcs.length} 条线（其中 ${sk} 条抽出骨架）` +
+              (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
+        )
+      }
     } catch (e) {
       const msg = (e as Error).message
       // 中断不是错误，不弹失败提示
@@ -283,14 +291,16 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
                   item={r}
                   onAnalyze={analyze}
                   analyzing={analyzingId === r.id}
-                  onExtract={() => setConfirmRef(r)}
+                  onExtract={() => setConfirmRef({ ref: r, stage: 'elements' })}
+                  onExtractPlot={() => setConfirmRef({ ref: r, stage: 'plot' })}
                   extracting={run?.refId === r.id && !!run.progress}
                   running={run?.refId === r.id}
                   onStop={stopRun}
                   progress={run?.refId === r.id ? run.progress : null}
                   result={run?.refId === r.id ? run.result : null}
+                  plot={run?.refId === r.id ? run.plot : null}
                   failedBatches={run?.refId === r.id ? run.failedBatches : 0}
-                  onRetryFailed={() => startExtraction(r, true)}
+                  onRetryFailed={() => startExtraction(r, run?.stage ?? 'elements', true)}
                   onRemove={() => actions.removeReference(r.id)}
                 />
               ))}
@@ -361,10 +371,11 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
 
       {confirmRef && (
         <CostConfirmModal
-          refItem={confirmRef}
+          refItem={confirmRef.ref}
+          stage={confirmRef.stage}
           aiReady={aiReady(state.ai)}
           onCancel={() => setConfirmRef(null)}
-          onConfirm={() => startExtraction(confirmRef)}
+          onConfirm={() => startExtraction(confirmRef.ref, confirmRef.stage)}
         />
       )}
 
@@ -378,11 +389,13 @@ function RefCard({
   onAnalyze,
   analyzing,
   onExtract,
+  onExtractPlot,
   extracting,
   running,
   onStop,
   progress,
   result,
+  plot,
   failedBatches,
   onRetryFailed,
   onRemove,
@@ -392,11 +405,13 @@ function RefCard({
   onAnalyze: (id: string) => void
   analyzing: boolean
   onExtract: () => void
+  onExtractPlot: () => void
   extracting: boolean
   running: boolean
   onStop: () => void
   progress: QueueProgress | null
   result: RefElements | null
+  plot: RefPlot | null
   failedBatches: number
   onRetryFailed: () => void
   onRemove: () => void
@@ -439,13 +454,22 @@ function RefCard({
       )}
 
       {/* 结果概要 */}
-      {result && !extracting && (
+      {(result || plot) && !extracting && (
         <div className="ref-card-run">
-          <div className="rcr-result">
-            <span><b>{result.characters.length}</b> 角色</span>
-            <span><b>{result.settings.length}</b> 设定</span>
-            <span><b>{result.foreshadows.length}</b> 伏笔</span>
-          </div>
+          {result && (
+            <div className="rcr-result">
+              <span><b>{result.characters.length}</b> 角色</span>
+              <span><b>{result.settings.length}</b> 设定</span>
+              <span><b>{result.foreshadows.length}</b> 伏笔</span>
+            </div>
+          )}
+          {plot && (
+            <div className="rcr-result">
+              <span><b>{plot.beats.length}</b> 情节拍</span>
+              <span><b>{plot.arcs.length}</b> 叙事线</span>
+              <span><b>{plot.arcs.filter((a) => a.skeleton).length}</b> 骨架</span>
+            </div>
+          )}
           {failedBatches > 0 && (
             <div className="rcr-gap">
               <div className="rcr-gap-t">有 {failedBatches} 批抽取失败，这部分内容缺失</div>
@@ -470,12 +494,12 @@ function RefCard({
               {analyzing ? '统计中…' : '重新统计'}
             </button>
           )}
-          <button className="btn btn-ref btn-sm" style={{ width: '100%', justifyContent: 'center', marginTop: 7 }}
-            onClick={onExtract}>
-            深度拆解（要素抽取）
-          </button>
+          <div className="ref-card-btns">
+            <button className="btn btn-ref btn-sm" onClick={onExtract}>要素抽取</button>
+            <button className="btn btn-ref btn-sm" onClick={onExtractPlot}>情节链拆解</button>
+          </div>
           <div className="ref-card-hint">
-            {item.stage === 'idle' ? '结构统计纯本地、不花 token' : '要素抽取需 AI，会产生费用'}
+            {item.stage === 'idle' ? '结构统计纯本地、不花 token' : '要素与情节链需 AI，会产生费用'}
           </div>
         </div>
       )}
@@ -495,11 +519,13 @@ function RefCard({
  */
 function CostConfirmModal({
   refItem,
+  stage,
   aiReady: ready,
   onCancel,
   onConfirm,
 }: {
   refItem: Reference
+  stage: AiStage
   aiReady: boolean
   onCancel: () => void
   onConfirm: () => void
@@ -512,7 +538,7 @@ function CostConfirmModal({
     <div className="veil" onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}>
       <div className="modal" style={{ width: 500 }}>
         <div className="modal-head">
-          <span className="modal-title">深度拆解《{refItem.title}》</span>
+          <span className="modal-title">{AI_STAGE_LABEL[stage]}《{refItem.title}》</span>
           <span style={{ flex: 1 }} />
           <button className="icon-btn square" onClick={onCancel}>✕</button>
         </div>
