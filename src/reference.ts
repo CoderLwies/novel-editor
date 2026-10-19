@@ -236,11 +236,17 @@ export async function readReferenceMeta(dir: string): Promise<Reference | null> 
 
 /** 读回拆好的原文（P1 分析与报告回读用） */
 export async function readReferenceChapters(ref: Reference): Promise<RefChapter[]> {
-  const entries = await fsLow.readdir(`${ref.dir}/chapters`)
+  let entries: FsDirEntry[]
+  try {
+    entries = await fsLow.readdir(`${ref.dir}/chapters`)
+  } catch {
+    // 目录被移动/删除、或还没拆章：返回空而不是抛 ENOENT 让整个流程崩掉
+    return []
+  }
   const names = pickChapterFiles(entries)
   const out: RefChapter[] = []
   for (const name of names) {
-    const text = await fsLow.readFile(`${ref.dir}/chapters/${name}`)
+    const text = await fsLow.readFile(`${ref.dir}/chapters/${name}`).catch(() => '')
     const m = name.match(/^(\d+)_/)
     out.push({
       index: m ? Number(m[1]) : out.length + 1,
@@ -348,7 +354,14 @@ export async function scanRawBatches(
   fallbackBatchChapters: number,
 ): Promise<{ index: number; from: number; to: number }[]> {
   const manifest = await readRawManifest(ref, stage)
-  const entries = await fsLow.readdir(`${ref.dir}/analysis/raw`)
+  // raw 目录只在第一次批次落盘后才存在。新书（从未跑过分析）读它会 ENOENT，
+  // 那是正常状态而不是错误 —— 返回空即可，绝不能让整个分析流程崩在这里。
+  let entries: FsDirEntry[]
+  try {
+    entries = await fsLow.readdir(`${ref.dir}/analysis/raw`)
+  } catch {
+    return []
+  }
   const present = new Set<number>()
   const re = new RegExp(`^${stage}-(\\d+)\\.json$`, 'i')
   for (const e of entries) {

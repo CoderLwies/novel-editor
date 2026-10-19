@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { splitReferenceText, pickChapterFiles, describeImport } from '../reference'
+import { splitReferenceText, pickChapterFiles, describeImport, scanRawBatches } from '../reference'
 import { decodeBuffer } from '../fs'
+import type { Reference } from '../types'
+
+/** 目录不存在时必须返回空，而不是抛 ENOENT 让整个分析流程崩掉 */
+const mkRef = (dir: string): Reference => ({
+  id: 'r1', title: 'x', author: 'a', genre: 'g', wordCount: 0, chapterCount: 0,
+  volumes: [], dir, sourceEncoding: 'utf-8', stage: 'idle', createdAt: 1, updatedAt: 1,
+})
 
 describe('decodeBuffer 编码探测', () => {
   // GBK 真实字节：中文 = D6 D0 CE C4（作为 UTF-8 解码必然失败）
@@ -140,5 +147,19 @@ describe('describeImport 导入体检', () => {
     expect(d.volumes).toBe(1)
     expect(d.words).toBe(8)
     expect(d.encoding).toBe('gb18030')
+  })
+})
+
+describe('目录缺失时的容错（新书首次跑分析必踩）', () => {
+  it('analysis/raw 不存在时返回空批次，不抛 ENOENT', async () => {
+    // 指向一个必然不存在的目录，模拟「新书还没跑过任何批次」
+    const ref = mkRef('D:/__no_such_ref_dir__/x')
+    await expect(scanRawBatches(ref, 'plot', 4)).resolves.toEqual([])
+  })
+
+  it('chapters 目录不存在时读回空数组，不抛 ENOENT', async () => {
+    const { readReferenceChapters } = await import('../reference')
+    const ref = mkRef('D:/__no_such_ref_dir__/y')
+    await expect(readReferenceChapters(ref)).resolves.toEqual([])
   })
 })
