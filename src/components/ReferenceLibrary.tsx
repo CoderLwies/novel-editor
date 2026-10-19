@@ -22,6 +22,7 @@ import { TEMPLATE_KIND_LABEL } from '../refschema'
 import type { ChecklistItem } from '../refderive'
 import { buildTemplates, buildComparison, COMPARE_DIMS, bestOf, diffSummary, type RefAnalysisBundle } from '../reftemplates'
 import ElementsModal from './ElementsModal'
+import PlotModal from './PlotModal'
 
 /** 待确认的一次导入 */
 interface PendingImport {
@@ -74,6 +75,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   const [insight, setInsight] = useState<string[] | null>(null)
   /** 打开要素详情的参考书；分析产物在磁盘上，任何时候都能回看 */
   const [elementsRef, setElementsRef] = useState<Reference | null>(null)
+  const [plotRef, setPlotRef] = useState<Reference | null>(null)
 
   // 各书的分析产物汇总；模板与对比全部由此**本地推导**，不再调用模型。
   // 抽成函数是为了跑完抽取后能立即重载 —— 否则卡片看不到刚跑出来的结果。
@@ -363,7 +365,9 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
                   failedBatches={run?.refId === r.id ? run.failedBatches : 0}
                   onRetryFailed={() => startExtraction(r, run?.stage ?? 'elements', true)}
                   elements={bundleOf(r.id)?.elements ?? null}
+                  plotData={bundleOf(r.id)?.plot ?? null}
                   onOpenElements={() => setElementsRef(r)}
+                  onOpenPlot={() => setPlotRef(r)}
                   onRemove={() => actions.removeReference(r.id)}
                 />
               ))}
@@ -448,6 +452,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
       )}
 
       {elementsRef && <ElementsModal refItem={elementsRef} onClose={() => setElementsRef(null)} />}
+      {plotRef && <PlotModal refItem={plotRef} onClose={() => setPlotRef(null)} />}
 
       {toast && <div className="toast">{toast}</div>}
     </div>
@@ -469,7 +474,10 @@ function RefCard({
   failedBatches,
   onRetryFailed,
   elements,
+  /** 磁盘上已有的情节链产物；与本次是否跑过无关 */
+  plotData,
   onOpenElements,
+  onOpenPlot,
   onRemove,
 }: {
   /** 注意：不要叫 `ref` —— 那是 React 保留 prop，组件内部会拿不到这个对象 */
@@ -488,10 +496,14 @@ function RefCard({
   onRetryFailed: () => void
   /** 磁盘上已有的要素产物；与本次是否跑过无关，关掉应用重开仍可查看 */
   elements: RefElements | null
+  /** 磁盘上已有的情节链产物 */
+  plotData: RefPlot | null
   onOpenElements: () => void
+  onOpenPlot: () => void
   onRemove: () => void
 }) {
   const hasElements = !!elements
+  const hasPlot = !!plotData
   const st = STAGE_META[item.stage]
   const pct = progress ? Math.round(progressRatio(progress) * 100) : 0
   return (
@@ -547,11 +559,19 @@ function RefCard({
               <span className="rcr-hint">点击查看详情</span>
             </div>
           )}
-          {plot && (
+          {/* 与要素同理：入口由磁盘上的 plot.json 决定，关掉应用重开照样可看 */}
+          {hasPlot && (
             <div className="rcr-result">
-              <span><b>{plot.beats.length}</b> 情节拍</span>
-              <span><b>{plot.arcs.length}</b> 叙事线</span>
-              <span><b>{plot.arcs.filter((a) => a.skeleton).length}</b> 骨架</span>
+              <button className="rcr-kpi" onClick={onOpenPlot}>
+                <b>{plotData?.beats.length ?? 0}</b> 情节拍
+              </button>
+              <button className="rcr-kpi" onClick={onOpenPlot}>
+                <b>{plotData?.arcs.length ?? 0}</b> 叙事线
+              </button>
+              <button className="rcr-kpi" onClick={onOpenPlot}>
+                <b>{(plotData?.arcs ?? []).filter((a) => a.skeleton).length}</b> 骨架
+              </button>
+              <span className="rcr-hint">点击查看详情</span>
             </div>
           )}
           {failedBatches > 0 && (

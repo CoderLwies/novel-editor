@@ -1078,7 +1078,67 @@ async function main() {
     const fsChips = await js(`[...document.querySelectorAll('.em-card .chip')].map(c=>c.textContent.replace(/\\s+/g,' ').trim()).join(' | ')`)
     await js(`document.querySelector('.em-modal .modal-head .icon-btn')?.click()`)
     await sleep(400)
-    console.log('E2E elements fixture -> file written:', fs.existsSync(path.join(analysisDir, 'elements.json')), '| cards:', cards)
+
+    // 26) 情节链详情：同样从磁盘产物驱动
+    fs.writeFileSync(path.join(analysisDir, 'plot.json'), JSON.stringify({
+      schemaVersion: 1, refId: refMeta2.id, computedAt: Date.now(),
+      beats: [
+        { id: 'pb0', refId: refMeta2.id, fromChapter: 1, toChapter: 3, kind: 'setup',
+          title: '废柴开局', summary: '建立处境与不公', signal: '当众被贬，无人出面维护',
+          cost: '主角处境要足够惨', characters: ['林渊'] },
+        { id: 'pb1', refId: refMeta2.id, fromChapter: 4, toChapter: 5, kind: 'conflict',
+          title: '比武受辱', summary: '第一次正面冲突', signal: '被当众羞辱后孤立无援',
+          cost: '不能全身而退', characters: ['林渊', '周衍'] },
+        { id: 'pb2', refId: refMeta2.id, fromChapter: 6, toChapter: 8, kind: 'payoff',
+          title: '一剑破境', summary: '反转', signal: '在众人面前揭穿对手',
+          cost: '必须付出代价', characters: ['林渊'] },
+      ],
+      arcs: [{
+        id: 'pa0', refId: refMeta2.id, title: '身份反转线', beatIds: ['pb0', 'pb1', 'pb2'],
+        fromChapter: 1, toChapter: 8,
+        skeleton: {
+          steps: [
+            { key: 'a', label: '受辱', require: '要有具体的当众羞辱场面' },
+            { key: 'b', label: '隐忍', require: '不能立刻反击' },
+            { key: 'c', label: '反打', require: '必须付出代价' },
+          ],
+          suggestedSpan: 20,
+        },
+      }],
+    }))
+    await win.reload()
+    await sleep(2400)
+    await js(`document.querySelector('.shelf-ref-entry')?.click()`)
+    await sleep(900)
+    const plotKpis = await js(`(() => {
+      const rows = [...document.querySelectorAll('.ref-card .rcr-result')]
+      const p = rows.find(r => r.textContent.includes('情节拍'))
+      return p ? p.textContent.replace(/\\s+/g, ' ').trim() : ''
+    })()`)
+    await js(`(() => {
+      const rows = [...document.querySelectorAll('.ref-card .rcr-result')]
+      const p = rows.find(r => r.textContent.includes('情节拍'))
+      p?.querySelector('.rcr-kpi')?.click()
+    })()`)
+    await sleep(900)
+    const pm = await js(`(() => {
+      const m = document.querySelector('.em-modal')
+      if (!m) return { open: false }
+      return {
+        open: true,
+        title: m.querySelector('.modal-title')?.textContent ?? '',
+        tabs: [...m.querySelectorAll('.em-tab')].map(t=>t.textContent.replace(/\\s+/g,'')).join(' '),
+        arcTitle: m.querySelector('.arc-t')?.textContent ?? '',
+        nodes: [...m.querySelectorAll('.arc-node .arc-nt')].map(n=>n.textContent).join('>'),
+        skel: [...m.querySelectorAll('.arc-sk-step .tc-l')].map(s=>s.textContent).join('>'),
+        span: m.querySelector('.arc-sk-span')?.textContent ?? '',
+        sig: m.querySelector('.arc-node .arc-sig')?.textContent ?? '',
+      }
+    })()`)
+    await js(`document.querySelector('.em-modal .modal-head .icon-btn')?.click()`)
+    await sleep(300)
+    console.log('E2E plot entry -> kpis:', plotKpis)
+    console.log('E2E plot modal ->', JSON.stringify(pm))
     console.log('E2E elements entry -> kpis:', kpis)
     console.log('E2E elements modal ->', JSON.stringify(emModal))
     console.log('E2E elements foreshadows ->', fsChips)

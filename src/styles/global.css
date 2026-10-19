@@ -1729,3 +1729,35 @@ label.lbl {
 .rcr-kpi:hover b { color: var(--accent); }
 @media (max-width: 720px) { .em-fields { grid-template-columns: 1fr; } }
 .rcr-hint { font-size: 10.5px; color: var(--text-faint); margin-left: auto; align-self: center; }
+
+/* 情节链详情 */
+.em-summary { font-size: 11px; color: var(--text-faint); }
+.beat-kind {
+  font-size: 10.5px; padding: 2px 8px; border-radius: 100px; color: #fff;
+  font-weight: 600; white-space: nowrap;
+}
+.beat-kind.sm { font-size: 10px; padding: 1px 6px; }
+.beat-meta { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.beat-meta > div { display: flex; gap: 8px; font-size: 11.5px; line-height: 1.6; }
+.beat-meta .bm-k { flex: 0 0 68px; color: var(--text-faint); }
+.beat-meta .bm-v { flex: 1; color: var(--text-dim); }
+
+.arc-card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elev); padding: 12px 13px; }
+.arc-h { display: flex; align-items: baseline; gap: 9px; margin-bottom: 9px; }
+.arc-t { font-family: var(--font-editor); font-size: 15px; font-weight: 650; }
+.arc-chain { display: flex; flex-direction: column; gap: 5px; }
+.arc-node {
+  display: grid; grid-template-columns: 52px 88px 74px 1fr; gap: 8px; align-items: center;
+  font-size: 11.5px; padding: 3px 0;
+}
+.arc-node .arc-nt { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arc-node .arc-ch { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); }
+.arc-node .arc-sig { color: var(--text-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arc-skel { margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--border-strong); }
+.arc-sk-h { font-size: 11.5px; font-weight: 600; color: var(--ref); margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
+.arc-sk-span { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); font-weight: 400; }
+.arc-sk-steps { display: flex; flex-direction: column; gap: 4px; }
+.arc-sk-step { display: grid; grid-template-columns: 16px 74px 1fr; gap: 8px; align-items: baseline; font-size: 11.5px; }
+.arc-sk-step .tc-i { width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center; background: var(--ref-soft); color: var(--ref); font-family: var(--font-mono); font-size: 9px; font-weight: 700; }
+.arc-sk-step .tc-l { font-weight: 600; }
+.arc-sk-step .tc-r { color: var(--text-faint); font-size: 10.5px; line-height: 1.55; }
