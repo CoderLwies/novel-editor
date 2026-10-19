@@ -76,6 +76,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   /** 打开要素详情的参考书；分析产物在磁盘上，任何时候都能回看 */
   const [elementsRef, setElementsRef] = useState<Reference | null>(null)
   const [plotRef, setPlotRef] = useState<Reference | null>(null)
+  const [rebuildingId, setRebuildingId] = useState<string | null>(null)
 
   // 各书的分析产物汇总；模板与对比全部由此**本地推导**，不再调用模型。
   // 抽成函数是为了跑完抽取后能立即重载 —— 否则卡片看不到刚跑出来的结果。
@@ -225,6 +226,24 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
     }
   }
 
+  /** 从 raw/ 缓存重建，零成本。已付费的批次不该因为最后一步失败而看不见 */
+  async function rebuild(ref: Reference, stage: AiStage) {
+    setRebuildingId(`${ref.id}:${stage}`)
+    try {
+      const r = await actions.rebuildFromCache(ref.id, stage)
+      if (r.ok) {
+        await loadBundles()
+        flash(`已从缓存重建${stage === 'plot' ? '情节链' : '要素'}：${r.batches} 批，未产生任何费用`)
+      } else {
+        flash(`无法重建：${r.reason}`)
+      }
+    } catch (e) {
+      flash(`重建失败：${(e as Error).message}`)
+    } finally {
+      setRebuildingId(null)
+    }
+  }
+
   const shown = filter === 'all' ? refs : refs.filter((r) => r.stage === filter)
 
   /* ------------------------- 阶段二：深度拆解 ------------------------- */
@@ -366,6 +385,8 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
                   plot={run?.refId === r.id ? run.plot : null}
                   failedBatches={run?.refId === r.id ? run.failedBatches : 0}
                   onRetryFailed={() => startExtraction(r, run?.stage ?? 'elements', true)}
+                  rebuilding={rebuildingId}
+                  onRebuild={rebuild}
                   elements={bundleOf(r.id)?.elements ?? null}
                   plotData={bundleOf(r.id)?.plot ?? null}
                   onOpenElements={() => setElementsRef(r)}
@@ -480,6 +501,8 @@ function RefCard({
   plotData,
   onOpenElements,
   onOpenPlot,
+  rebuilding,
+  onRebuild,
   onRemove,
 }: {
   /** 注意：不要叫 `ref` —— 那是 React 保留 prop，组件内部会拿不到这个对象 */
@@ -502,6 +525,9 @@ function RefCard({
   plotData: RefPlot | null
   onOpenElements: () => void
   onOpenPlot: () => void
+  /** 正在从缓存重建的 key（`${refId}:${stage}`） */
+  rebuilding: string | null
+  onRebuild: (ref: Reference, stage: AiStage) => void
   onRemove: () => void
 }) {
   const hasElements = !!elements
@@ -604,6 +630,17 @@ function RefCard({
             <button className="btn btn-ref btn-sm" onClick={onExtract}>要素抽取</button>
             <button className="btn btn-ref btn-sm" onClick={onExtractPlot}>情节链拆解</button>
           </div>
+          {/* 缺产物但缓存还在时，优先给「重建」而不是让用户重跑（重跑要花钱） */}
+          {!hasElements && (
+            <button className="btn btn-ghost btn-sm rc-rebuild" disabled={!!rebuilding} onClick={() => onRebuild(item, 'elements')}>
+              {rebuilding === `${item.id}:elements` ? '重建中…' : '从缓存重建要素（免费）'}
+            </button>
+          )}
+          {!hasPlot && (
+            <button className="btn btn-ghost btn-sm rc-rebuild" disabled={!!rebuilding} onClick={() => onRebuild(item, 'plot')}>
+              {rebuilding === `${item.id}:plot` ? '重建中…' : '从缓存重建情节链（免费）'}
+            </button>
+          )}
           <div className="ref-card-hint">
             {item.stage === 'idle' ? '结构统计纯本地、不花 token' : '要素与情节链需 AI，会产生费用'}
           </div>

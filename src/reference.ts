@@ -296,6 +296,71 @@ export async function readReferenceAnalysis<T>(
   }
 }
 
+/* ---------------------- 批次缓存（raw/）的清单 ---------------------- */
+
+/**
+ * raw/manifest-<stage>.json：记录每批覆盖的章区间与落盘时的章节总数。
+ *
+ * 作用是让「从缓存重建」能**校验批次划分是否还对得上**。
+ * 拆章规则一改（比如把误判的「第X节」修掉），章节数会变，
+ * 旧的 raw 就对不上了 —— 没有这个清单，重建会静默产出错乱的结果，
+ * 而用户已经为那些批次付过钱。
+ */
+export interface RawManifest {
+  stage: string
+  /** 落盘时的批大小 */
+  batchChapters: number
+  /** 落盘时的总章节数；与当前不一致说明拆章规则变了 */
+  chapterCount: number
+  totalBatches: number
+  batches: { index: number; from: number; to: number }[]
+}
+
+export const manifestFile = (ref: Reference, stage: string) => `${ref.dir}/analysis/raw/manifest-${stage}.json`
+
+export async function writeRawManifest(
+  ref: Reference,
+  manifest: RawManifest,
+): Promise<void> {
+  await fsLow.writeFile(manifestFile(ref, manifest.stage), JSON.stringify(manifest, null, 2))
+}
+
+export async function readRawManifest(ref: Reference, stage: string): Promise<RawManifest | null> {
+  try {
+    return JSON.parse(await fsLow.readFile(manifestFile(ref, stage))) as RawManifest
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 扫描 raw 目录里实际存在的批次文件。
+ * **这是比 checkpoint 更可靠的真相来源**：checkpoint 写失败时 raw 已经落盘，
+ * 只信 checkpoint 会导致重跑一批已经付费的批次。
+ * 没有 manifest 时按固定批大小反推章区间（兼容旧数据）。
+ */
+export async function scanRawBatches(
+  ref: Reference,
+  stage: string,
+  fallbackBatchChapters: number,
+): Promise<{ index: number; from: number; to: number }[]> {
+  const manifest = await readRawManifest(ref, stage)
+  const entries = await fsLow.readdir(`${ref.dir}/analysis/raw`)
+  const present = new Set<number>()
+  const re = new RegExp(`^${stage}-(\\d+)\\.json$`, 'i')
+  for (const e of entries) {
+    if (e.isDir) continue
+    const m = e.name.match(re)
+    if (m) present.add(Number(m[1]))
+  }
+  const step = manifest?.batchChapters ?? fallbackBatchChapters
+  return [...present].sort((a, b) => a - b).map((index) => ({
+    index,
+    from: manifest?.batches.find((b) => b.index === index)?.from ?? index * step + 1,
+    to: manifest?.batches.find((b) => b.index === index)?.to ?? (index + 1) * step,
+  }))
+}
+
 /** 目录存在性体检：给导入向导用 */
 export function describeImport(
   split: SplitResult,

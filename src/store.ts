@@ -16,9 +16,9 @@ import type {
 import type { ProjectData } from './project'
 import { writeChapterFile, writeBookMeta, writeProjectToDir, stripContent, hydrateContent } from './project'
 import { supportsFileStorage, getUserDataDir } from './fs'
-import { analyzeStructure, runElementExtraction, runPlotExtraction, clearFailedBatches } from './refanalysis'
+import { analyzeStructure, runElementExtraction, runPlotExtraction, clearFailedBatches, rebuildFromRaw } from './refanalysis'
 import type { RefStructure, RefElements, RefPlot } from './refschema'
-import type { QueueProgress } from './aiqueue'
+import type { QueueProgress, AiStage } from './aiqueue'
 import type { RunResult } from './aiqueue-runner'
 import { aiReady, chatJSONWithUsage, SYS_PLANNER } from './ai'
 import { SYS_CHECKLIST, type ChecklistResult, diffInsightPrompt, type DiffInsight } from './refprompt'
@@ -885,6 +885,20 @@ export const actions = {
     if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口')
     const { data } = await chatJSONWithUsage<DiffInsight>(state.ai, SYS_PLANNER, diffInsightPrompt(rows), 60000)
     return data
+  },
+
+  /**
+   * 从 raw/ 缓存重建产物 —— **不调用模型，零成本**。
+   * 跑一本书 token 花费不小，任何环节失败都不该让已付费的成果不可见。
+   */
+  async rebuildFromCache(id: ID, stage: AiStage): Promise<{ ok: boolean; reason?: string; batches?: number }> {
+    const ref = state.references.find((r) => r.id === id)
+    if (!ref) throw new Error('参考作品不存在')
+    const r = await rebuildFromRaw(ref, stage)
+    if (r.ok) {
+      actions.updateReference(id, { stage: stage === 'plot' ? 'done' : ref.stage === 'idle' ? 'scanned' : ref.stage })
+    }
+    return r
   },
 
   removeReference(id: ID) {

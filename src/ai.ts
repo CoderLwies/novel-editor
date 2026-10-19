@@ -64,6 +64,12 @@ export interface ChatError extends Error {
   /** 供队列决定是否重试 */
   kind?: 'network' | 'ratelimit' | 'parse' | 'auth' | 'aborted' | 'unknown'
   status?: number
+  /**
+   * 失败这次调用**已经花掉的** token。
+   * 不带这个的话重试消耗完全隐形：checkpoint 只记成功批次，
+   * 用户账单和界面对不上，预算控制也就失去意义。
+   */
+  usage?: ChatUsage
 }
 
 function classify(err: unknown, status?: number): ChatError {
@@ -96,6 +102,8 @@ export async function chatJSONWithUsage<T>(
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   let status: number | undefined
+  /** 无论成功失败都记账：失败那次调用同样花了钱 */
+  let spent: ChatUsage = { inputTokens: 0, outputTokens: 0 }
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -117,20 +125,21 @@ export async function chatJSONWithUsage<T>(
     if (!res.ok) throw classify(new Error(`AI 接口返回 ${res.status}`), res.status)
     const raw = await res.json()
     const text: string = raw?.choices?.[0]?.message?.content ?? ''
-    const usage: ChatUsage = {
+    spent = {
       inputTokens: Number(raw?.usage?.prompt_tokens ?? 0),
       outputTokens: Number(raw?.usage?.completion_tokens ?? 0),
     }
     if (!text.trim()) throw classify(new Error('AI 返回空内容'))
     try {
-      return { data: parseJsonLoose(text) as T, usage }
+      return { data: parseJsonLoose(text) as T, usage: spent }
     } catch (pe) {
       throw classify(new Error(`AI 返回不是有效 JSON：${(pe as Error).message}`))
     }
   } catch (e) {
     if (ctrl.signal.aborted) throw classify(new Error(`AI 接口超时（${Math.round(timeoutMs / 1000)}s）`))
-    if ((e as ChatError).kind) throw e
-    throw classify(e, status)
+    const err = (e as ChatError).kind ? (e as ChatError) : classify(e, status)
+    err.usage = spent // 失败也要把花掉的 token 带出去
+    throw err
   } finally {
     clearTimeout(timer)
   }

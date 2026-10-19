@@ -29,6 +29,11 @@ export interface RunOptions {
   config: QueueConfig
   /** 初始断点；null 表示全新开始 */
   checkpoint: QueueCheckpoint | null
+  /**
+   * 磁盘上**确实已落盘**的批次。raw 写成功但 checkpoint 写失败时，
+   * 只信 checkpoint 会重跑一批已经付费的批次 —— 这个列表比 checkpoint 更可靠。
+   */
+  persistedBatches?: number[]
   /** 实际执行一个批次 */
   execute: (batch: BatchTask) => Promise<BatchOutput>
   /** 每完成/失败一个批次就调用，用于落盘 checkpoint */
@@ -76,25 +81,35 @@ async function runOne(
   config: QueueConfig,
   execute: RunOptions['execute'],
   signal?: AbortSignal,
-): Promise<{ ok: true; out: BatchOutput } | { ok: false; err: TaskError }> {
+): Promise<
+  | { ok: true; out: BatchOutput; retriedIn: number; retriedOut: number }
+  | { ok: false; err: TaskError; retriedIn: number; retriedOut: number }
+> {
   let attempt = 0
   let last: TaskError = { kind: 'unknown', message: '未执行', batchIndex: batch.index, attempt: 0 }
+  /** 失败尝试里花掉的 token —— 不算进统计的话，用户账单永远和界面对不上 */
+  let retriedIn = 0
+  let retriedOut = 0
 
   while (true) {
     if (signal?.aborted) {
-      return { ok: false, err: { kind: 'aborted', message: '已中断', batchIndex: batch.index, attempt } }
+      return { ok: false, err: { kind: 'aborted', message: '已中断', batchIndex: batch.index, attempt }, retriedIn, retriedOut }
     }
     attempt += 1
     try {
       const out = await execute(batch)
-      return { ok: true, out }
+      return { ok: true, out, retriedIn, retriedOut }
     } catch (e) {
-      const err = e as Error & { kind?: TaskErrorKind }
+      const err = e as TaskError & { usage?: { inputTokens: number; outputTokens: number } }
       const kind: TaskErrorKind = err.kind ?? 'unknown'
       last = { kind, message: err.message ?? String(e), batchIndex: batch.index, attempt }
+      if (err.usage) {
+        retriedIn += err.usage.inputTokens
+        retriedOut += err.usage.outputTokens
+      }
 
       if (!shouldRetry(kind, attempt, config.maxRetries)) {
-        return { ok: false, err: last }
+        return { ok: false, err: last, retriedIn, retriedOut }
       }
       await sleep(backoffMs(attempt, config.retryBaseDelayMs))
     }
@@ -110,16 +125,21 @@ async function runOne(
 export async function runQueue(opts: RunOptions): Promise<RunResult> {
   const { batches, config, execute, onCheckpoint, onProgress, signal } = opts
 
-  // 已完成 / 已失败的批次直接排除，避免重复消耗 token
+  // 已完成 / 已失败的批次直接排除，避免重复消耗 token。
+  // raw 里存在的批次一律视为已完成 —— 它是"钱已经花了"的唯一确凿证据。
   const handled = new Set([
     ...(opts.checkpoint?.completed ?? []),
     ...(opts.checkpoint?.failed.map((f) => f.batchIndex) ?? []),
+    ...(opts.persistedBatches ?? []),
   ])
   const todo = batches.filter((b) => !handled.has(b.index))
-
+  // raw 里有的、checkpoint 没记的，补进 completed，让断点与磁盘一致
   const cp: QueueCheckpoint = opts.checkpoint
     ? { ...opts.checkpoint, status: 'running', updatedAt: Date.now() }
     : makeCheckpoint(batches, config.batchChapters)
+  for (const i of handled) {
+    if (!cp.completed.includes(i) && !cp.failed.some((f) => f.batchIndex === i)) cp.completed.push(i)
+  }
 
   const report = () => {
     const spentYuan = costOf(cp.inputTokens, cp.outputTokens, config.pricing, isPeakHour())
@@ -164,11 +184,14 @@ export async function runQueue(opts: RunOptions): Promise<RunResult> {
 
       if (r.ok) {
         cp.completed.push(batch.index)
-        cp.inputTokens += r.out.inputTokens
-        cp.outputTokens += r.out.outputTokens
+        // 重试消耗一并计入：它真实发生过，不能因为没产出结果就不算数
+        cp.inputTokens += r.out.inputTokens + r.retriedIn
+        cp.outputTokens += r.out.outputTokens + r.retriedOut
       } else if (r.err.kind === 'aborted') {
         aborted = true
       } else {
+        cp.inputTokens += r.retriedIn
+        cp.outputTokens += r.retriedOut
         // 失败也要落盘：结果有缺口，UI 必须能看见
         cp.failed.push(r.err)
       }

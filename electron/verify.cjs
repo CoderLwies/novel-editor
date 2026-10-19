@@ -1079,20 +1079,25 @@ async function main() {
     await js(`document.querySelector('.em-modal .modal-head .icon-btn')?.click()`)
     await sleep(400)
 
-    // 26) 情节链详情：同样从磁盘产物驱动
+    // 26) 情节链详情：同样从磁盘产物驱动。
+    // 同时造出 raw/ 批次缓存 —— 「从缓存重建」正是靠它，不能只造最终产物
+    const rawDir = path.join(analysisDir, 'raw')
+    fs.mkdirSync(rawDir, { recursive: true })
+    const rawBeats = [
+      { fromChapter: 1, toChapter: 3, kind: 'setup', title: '废柴开局', summary: '建立处境与不公',
+        signal: '当众被贬，无人出面维护', cost: '主角处境要足够惨', characters: ['林渊'] },
+      { fromChapter: 4, toChapter: 5, kind: 'conflict', title: '比武受辱', summary: '第一次正面冲突',
+        signal: '被当众羞辱后孤立无援', cost: '不能全身而退', characters: ['林渊', '周衍'] },
+      { fromChapter: 6, toChapter: 8, kind: 'payoff', title: '一剑破境', summary: '反转',
+        signal: '在众人面前揭穿对手', cost: '必须付出代价', characters: ['林渊'] },
+    ]
+    rawBeats.forEach((b, i) => {
+      fs.writeFileSync(path.join(rawDir, `plot-${String(i).padStart(4, '0')}.json`),
+        JSON.stringify({ beats: [b] }))
+    })
     fs.writeFileSync(path.join(analysisDir, 'plot.json'), JSON.stringify({
       schemaVersion: 1, refId: refMeta2.id, computedAt: Date.now(),
-      beats: [
-        { id: 'pb0', refId: refMeta2.id, fromChapter: 1, toChapter: 3, kind: 'setup',
-          title: '废柴开局', summary: '建立处境与不公', signal: '当众被贬，无人出面维护',
-          cost: '主角处境要足够惨', characters: ['林渊'] },
-        { id: 'pb1', refId: refMeta2.id, fromChapter: 4, toChapter: 5, kind: 'conflict',
-          title: '比武受辱', summary: '第一次正面冲突', signal: '被当众羞辱后孤立无援',
-          cost: '不能全身而退', characters: ['林渊', '周衍'] },
-        { id: 'pb2', refId: refMeta2.id, fromChapter: 6, toChapter: 8, kind: 'payoff',
-          title: '一剑破境', summary: '反转', signal: '在众人面前揭穿对手',
-          cost: '必须付出代价', characters: ['林渊'] },
-      ],
+      beats: rawBeats.map((b, i) => ({ id: `pb${i}`, refId: refMeta2.id, ...b })),
       arcs: [{
         id: 'pa0', refId: refMeta2.id, title: '身份反转线', beatIds: ['pb0', 'pb1', 'pb2'],
         fromChapter: 1, toChapter: 8,
@@ -1139,6 +1144,28 @@ async function main() {
     await sleep(300)
     console.log('E2E plot entry -> kpis:', plotKpis)
     console.log('E2E plot modal ->', JSON.stringify(pm))
+
+    // 27) 从缓存重建：删掉产物后应能零成本恢复
+    fs.rmSync(path.join(analysisDir, 'plot.json'), { force: true })
+    await win.reload()
+    await sleep(2400)
+    await js(`document.querySelector('.shelf-ref-entry')?.click()`)
+    await sleep(900)
+    const rebuildBtn = await js(`(() => {
+      const b = [...document.querySelectorAll('.ref-card .btn')].find(x=>x.textContent.includes('从缓存重建'))
+      return b ? b.textContent.trim() : ''
+    })()`)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.ref-card .btn')].find(x=>x.textContent.includes('从缓存重建情节链'))
+      b?.click()
+    })()`)
+    await sleep(2500)
+    const rebuilt = fs.existsSync(path.join(analysisDir, 'plot.json'))
+      ? JSON.parse(fs.readFileSync(path.join(analysisDir, 'plot.json'), 'utf8'))
+      : null
+    console.log('E2E rebuild from cache -> button:', rebuildBtn,
+      '| plot.json restored:', !!rebuilt,
+      '| beats:', rebuilt?.beats?.length ?? 0)
     console.log('E2E elements entry -> kpis:', kpis)
     console.log('E2E elements modal ->', JSON.stringify(emModal))
     console.log('E2E elements foreshadows ->', fsChips)

@@ -8,7 +8,7 @@
 import type { AIConfig, Reference, RefStage } from './types'
 import type { RefStructure, RefElements, RefPlot, PlotArc } from './refschema'
 import { computeStructure } from './refstats'
-import { readReferenceChapters, writeReferenceAnalysis, writeReferenceMeta } from './reference'
+import { readReferenceChapters, writeReferenceAnalysis, writeReferenceMeta, scanRawBatches, readRawManifest, writeRawManifest } from './reference'
 import { fsLow } from './fs'
 import { planBatches, DEFAULT_QUEUE_CONFIG, type BatchTask, type AiStage, type QueueCheckpoint, type QueueConfig, type QueueProgress } from './aiqueue'
 import { runQueue, type RunResult } from './aiqueue-runner'
@@ -129,7 +129,18 @@ export async function runElementExtraction(
     config,
     checkpoint,
     execute,
-    onCheckpoint: (cp) => writeCheckpoint(marked, 'elements', cp),
+    // raw 已落盘的批次视为完成：checkpoint 写失败也不会重复付费
+    persistedBatches: (await scanRawBatches(marked, 'elements', config.batchChapters)).map((b) => b.index),
+    onCheckpoint: async (cp) => {
+      await writeRawManifest(marked, {
+        stage: 'elements',
+        batchChapters: config.batchChapters,
+        chapterCount: chapters.length,
+        totalBatches: batches.length,
+        batches: batches.map((b) => ({ index: b.index, from: b.fromChapter, to: b.toChapter })),
+      })
+      await writeCheckpoint(marked, 'elements', cp)
+    },
     onProgress: (p) => opts.onProgress?.(p),
     signal: opts.signal,
   })
@@ -198,7 +209,19 @@ export async function runPlotExtraction(
     config,
     checkpoint,
     execute,
-    onCheckpoint: (cp) => writeCheckpoint(marked, 'plot', cp),
+    // raw 已落盘的批次视为完成：checkpoint 写失败也不会重复付费
+    persistedBatches: (await scanRawBatches(marked, 'plot', config.batchChapters)).map((b) => b.index),
+    // 记录批次覆盖的章区间，重建时据此校验拆分章规则是否变过
+    onCheckpoint: async (cp) => {
+      await writeRawManifest(marked, {
+        stage: 'plot',
+        batchChapters: config.batchChapters,
+        chapterCount: chapters.length,
+        totalBatches: batches.length,
+        batches: batches.map((b) => ({ index: b.index, from: b.fromChapter, to: b.toChapter })),
+      })
+      await writeCheckpoint(marked, 'plot', cp)
+    },
     onProgress: (p) => opts.onProgress?.(p),
     signal: opts.signal,
   })
@@ -304,6 +327,69 @@ export async function readPlotUsage(ref: Reference): Promise<PlotUsage | null> {
     outputTokens: cp.outputTokens,
     batches: cp.totalBatches,
   }
+}
+
+/**
+ * 从 raw/ 缓存重建产物 —— **不调用任何模型，零成本**。
+ *
+ * 存在的理由：跑一本书的 token 花费不小，任何环节失败都不该让已付费的成果
+ * 不可见。这是最后一道保险：只要 raw/ 还在，就能拼回产物。
+ *
+ * 拆章规则若改过（章节数变了），缓存与当前划分对不上，会明确拒绝而不是
+ * 静默产出错乱结果 —— 那种错乱比没有更糟。
+ */
+export async function rebuildFromRaw(
+  ref: Reference,
+  stage: AiStage,
+): Promise<{ ok: true; batches: number } | { ok: false; reason: string }> {
+  const chapters = await readReferenceChapters(ref)
+  const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG }
+  const batches = planBatches(ref.id, stage, chapters.length, config.batchChapters)
+  const persisted = await scanRawBatches(ref, stage, config.batchChapters)
+
+  if (!persisted.length) return { ok: false, reason: '缓存目录里没有任何批次结果，无法重建' }
+
+  const manifest = await readRawManifest(ref, stage)
+  if (manifest && manifest.chapterCount !== chapters.length) {
+    return {
+      ok: false,
+      reason: `缓存是按 ${manifest.chapterCount} 章落盘的，当前是 ${chapters.length} 章 —— 拆章规则已变，缓存对不上，需要重跑`,
+    }
+  }
+
+  // 匹配只看批次序号是否在当前划分内。
+  // 不能要求 from/to 严格相等 —— 末批常常是残缺的（章数不整除批大小）。
+  const usable = persisted.filter((p) => batches.some((b) => b.index === p.index))
+  if (!usable.length) {
+    return { ok: false, reason: `缓存批次与当前划分无法对应，需要重跑` }
+  }
+
+  const collector = new BeatCollector()
+  for (const b of [...usable].sort((x, y) => x.index - y.index)) {
+    const raw = await readBatchOutput<BatchPlot>(ref, stage, b.index)
+    if (raw) collector.add(raw, b.from, b.to)
+  }
+  if (!collector.length) return { ok: false, reason: '缓存内容无法解析，重建失败' }
+
+  if (stage === 'plot') {
+    const beats = collector.finish(ref.id)
+    const plot: RefPlot = {
+      schemaVersion: SCHEMA_VERSION, refId: ref.id, computedAt: Date.now(), beats, arcs: [],
+    }
+    await writeReferenceAnalysis(ref, 'plot', plot)
+  } else {
+    const merger = new ElementsMerger()
+    for (const b of [...usable].sort((x, y) => x.index - y.index)) {
+      const raw = await readBatchOutput<BatchElements>(ref, stage, b.index)
+      if (raw) merger.add(raw, chapters.filter((c) => c.index >= b.from && c.index <= b.to).map((c) => c.index))
+    }
+    const merged = merger.finish(ref.id)
+    await writeReferenceAnalysis(ref, 'elements', {
+      schemaVersion: SCHEMA_VERSION, refId: ref.id, computedAt: Date.now(), ...merged,
+    })
+  }
+  await writeReferenceMeta({ ...ref, stage: ref.stage === 'idle' ? 'scanned' : ref.stage })
+  return { ok: true, batches: usable.length }
 }
 
 /**

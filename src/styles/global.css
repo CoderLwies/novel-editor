@@ -1761,3 +1761,4 @@ label.lbl {
 .arc-sk-step .tc-i { width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center; background: var(--ref-soft); color: var(--ref); font-family: var(--font-mono); font-size: 9px; font-weight: 700; }
 .arc-sk-step .tc-l { font-weight: 600; }
 .arc-sk-step .tc-r { color: var(--text-faint); font-size: 10.5px; line-height: 1.55; }
+.rc-rebuild { width: 100%; justify-content: center; margin-top: 7px; }
