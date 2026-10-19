@@ -255,29 +255,10 @@ export function sysChecklistPrompt(
   ].join('\n')
 }
 
-/* ============================ 模板库与差异解读 ============================ */
-
-export interface TemplateSummaryResult {
-  templates?: { id?: string; title?: string; summary?: string }[]
-}
-
-/**
- * 给已经成型的模板润色标题与一句话说明。
- * 只喂骨架不喂正文，成本很低；模板若已由本地生成，这里只做「人话化」。
- */
-export function templateSummaryPrompt(
-  kindLabel: string,
-  steps: { label: string; require: string }[],
-): string {
-  return [
-    `有一个${kindLabel}类写作模板，骨架步骤如下：`,
-    steps.map((s, i) => `${i + 1}. ${s.label}${s.require ? `（${s.require}）` : ''}`).join('\n'),
-    '',
-    '给这个模板起一个四到十字的名字，并写一句话说明它解决什么问题。',
-    '要求：只描述方法本身，不提任何具体作品、人名、地名。',
-    'schema: {"title":"","summary":""}',
-  ].join('\n')
-}
+/* ============================ 差异解读 ============================
+ * 模板本身不需要模型：情节骨架与要素清单在分析阶段已是结构化方法，
+ * 本地转成可读形式即可。见 reftemplates.ts。这里只保留「差异解读」——
+ * 它读的是已算好的统计，模型只负责组织语言。 */
 
 export interface DiffInsight {
   insights?: string[]

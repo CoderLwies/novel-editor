@@ -307,22 +307,8 @@ export interface RefChecklists {
   checklists: SettingChecklist[]
 }
 
-/* ============================== 进度判定 ============================== */
-
-/**
- * 「用户当前写到哪一拍」的判定结果 —— 支撑写作时的参考弹窗。
- * 由用户当前章正文与候选拍 signal 比对得出，不是按章号推算。
- */
-export interface BeatLocator {
-  arcId: ID
-  beatId: ID
-  /** 0–1；低于阈值时应提示「把握不准」，而不是硬给一个答案 */
-  confidence: number
-  /** 为什么判定在这一拍 */
-  reason: string
-  /** 已完成的前序拍 */
-  passedBeatIds: ID[]
-}
+/* 进度判定不放在这里：定位结果依赖当时的候选集与上一次判定，
+   且允许「未命中」与「倒退告警」—— 用 store 的 LocatedBeat 表达更贴切。 */
 
 export const SCHEMA_VERSION = 1
 

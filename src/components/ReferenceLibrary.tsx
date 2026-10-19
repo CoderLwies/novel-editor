@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, FileInput, FolderInput, Trash2, BookMarked, Square, RotateCcw } from 'lucide-react'
 import { useStore, actions } from '../store'
 import type { Reference, RefStage } from '../types'
@@ -21,6 +21,7 @@ import type { RefTemplate, TemplateKind, RefStructure } from '../refschema'
 import { TEMPLATE_KIND_LABEL } from '../refschema'
 import type { ChecklistItem } from '../refderive'
 import { buildTemplates, buildComparison, COMPARE_DIMS, bestOf, diffSummary, type RefAnalysisBundle } from '../reftemplates'
+import ElementsModal from './ElementsModal'
 
 /** 待确认的一次导入 */
 interface PendingImport {
@@ -71,41 +72,44 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   const [bundles, setBundles] = useState<RefAnalysisBundle[]>([])
   const [templates, setTemplates] = useState<RefTemplate[]>([])
   const [insight, setInsight] = useState<string[] | null>(null)
+  /** 打开要素详情的参考书；分析产物在磁盘上，任何时候都能回看 */
+  const [elementsRef, setElementsRef] = useState<Reference | null>(null)
 
-  // 各书的分析产物汇总；模板与对比全部由此**本地推导**，不再调用模型
+  // 各书的分析产物汇总；模板与对比全部由此**本地推导**，不再调用模型。
+  // 抽成函数是为了跑完抽取后能立即重载 —— 否则卡片看不到刚跑出来的结果。
+  const loadBundles = useCallback(async () => {
+    const out: RefAnalysisBundle[] = []
+    for (const r of state.references) {
+      const structure = await readReferenceAnalysis<RefStructure>(r, 'structure')
+      const plot = await readReferenceAnalysis<RefPlot>(r, 'plot')
+      const elements = await readReferenceAnalysis<RefElements>(r, 'elements')
+      const clStore = await readReferenceAnalysis<Record<string, ChecklistItem[]>>(r, 'checklists')
+      const checklists: Record<string, ChecklistItem[]> = {}
+      // 清单要与本书实际存在的设定对得上，否则会串到别的子类型上
+      if (clStore && elements?.settings?.length) {
+        for (const s of elements.settings) {
+          const key = `${s.category}:${s.subtype || '未分类'}`
+          if (clStore[key]) checklists[key] = clStore[key]
+        }
+      }
+      if (structure || plot || elements) out.push({ ref: r, structure, plot, elements, checklists })
+    }
+    setBundles(out)
+    setTemplates(buildTemplates(out))
+  }, [state.references])
+
   useEffect(() => {
     let alive = true
-    ;(async () => {
-      const out: RefAnalysisBundle[] = []
-      for (const r of state.references) {
-        const structure = await readReferenceAnalysis<RefStructure>(r, 'structure')
-        const plot = await readReferenceAnalysis<RefPlot>(r, 'plot')
-        const elements = await readReferenceAnalysis<RefElements>(r, 'elements')
-        const clStore = await readReferenceAnalysis<Record<string, ChecklistItem[]>>(r, 'checklists')
-        const checklists: Record<string, ChecklistItem[]> = {}
-        for (const e of elements?.settings ?? []) {
-          const key = `${e.category}:${e.subtype || '未分类'}`
-          checklists[key] = checklists[key] ?? []
-        }
-        // 清单只在存在 checklists.json 时才算数
-        if (clStore && Object.keys(clStore).length) {
-          for (const k of Object.keys(clStore)) {
-            if (elements?.settings?.some((s) => `${s.category}:${s.subtype || '未分类'}` === k)) checklists[k] = clStore[k]
-          }
-        }
-        if (structure || plot || elements) out.push({ ref: r, structure, plot, elements, checklists })
-      }
-      if (!alive) return
-      setBundles(out)
-      setTemplates(buildTemplates(out))
-      setInsight(null)
+    void (async () => {
+      if (alive) await loadBundles()
     })()
     return () => {
       alive = false
     }
-  }, [state.references])
+  }, [loadBundles])
 
   const tplCount = templates.length
+  const bundleOf = (rid: string) => bundles.find((b) => b.ref.id === rid)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
@@ -193,6 +197,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
         uid('ref'),
       )
       actions.addReference(ref)
+      void loadBundles() // 新入库，重新汇总分析产物
       const d = describeImport(pending.split, pending.encoding)
       setPending(null)
       flash(`已入库《${ref.title}》：${d.chapters} 章 · ${formatNumber(d.words)} 字 · 原文写入 ${targetDir}`)
@@ -205,11 +210,12 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
 
   /* ------------------------- 阶段一：结构与节奏统计 ------------------------- */
 
-  async function analyze(refId: string) {
-    setAnalyzingId(refId)
+  async function analyze(ref: Reference) {
+    setAnalyzingId(ref.id)
     try {
-      const s = await actions.analyzeStructure(refId)
-      flash(`《${refs.find((r) => r.id === refId)?.title ?? ''}》统计完成：${s.chapterCount} 章 · 平均章长 ${formatNumber(s.avgChapterWords)} 字 · ${s.rhythm.length} 个节奏窗口`)
+      const s = await actions.analyzeStructure(ref.id)
+      await loadBundles() // 结构统计刚写盘，重载才能在卡片与卷纲面板看到
+      flash(`《${refs.find((r) => r.id === ref.id)?.title ?? ''}》统计完成：${s.chapterCount} 章 · 平均章长 ${formatNumber(s.avgChapterWords)} 字 · ${s.rhythm.length} 个节奏窗口`)
     } catch (e) {
       flash(`统计失败：${(e as Error).message}`)
     } finally {
@@ -229,6 +235,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
     try {
       if (stage === 'elements') {
         const { elements, run: r } = await actions.extractElements(ref.id, { signal: abort.signal, retryFailed, onProgress })
+        await loadBundles() // 产物刚写盘，重载后卡片与要素详情才拿得到
         setRun((prev) => (prev ? { ...prev, result: elements, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
         const c = elements.characters.length
         const s = elements.settings.length
@@ -241,6 +248,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
         )
       } else {
         const { plot, run: r } = await actions.extractPlot(ref.id, { signal: abort.signal, retryFailed, onProgress })
+        await loadBundles() // 产物刚写盘，重载后模板库与卷纲面板才拿得到
         setRun((prev) => (prev ? { ...prev, plot, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
         const sk = plot.arcs.filter((a) => a.skeleton).length
         flash(
@@ -354,6 +362,8 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
                   plot={run?.refId === r.id ? run.plot : null}
                   failedBatches={run?.refId === r.id ? run.failedBatches : 0}
                   onRetryFailed={() => startExtraction(r, run?.stage ?? 'elements', true)}
+                  elements={bundleOf(r.id)?.elements ?? null}
+                  onOpenElements={() => setElementsRef(r)}
                   onRemove={() => actions.removeReference(r.id)}
                 />
               ))}
@@ -437,6 +447,8 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
         />
       )}
 
+      {elementsRef && <ElementsModal refItem={elementsRef} onClose={() => setElementsRef(null)} />}
+
       {toast && <div className="toast">{toast}</div>}
     </div>
   )
@@ -456,11 +468,13 @@ function RefCard({
   plot,
   failedBatches,
   onRetryFailed,
+  elements,
+  onOpenElements,
   onRemove,
 }: {
   /** 注意：不要叫 `ref` —— 那是 React 保留 prop，组件内部会拿不到这个对象 */
   item: Reference
-  onAnalyze: (id: string) => void
+  onAnalyze: (ref: Reference) => void
   analyzing: boolean
   onExtract: () => void
   onExtractPlot: () => void
@@ -472,8 +486,12 @@ function RefCard({
   plot: RefPlot | null
   failedBatches: number
   onRetryFailed: () => void
+  /** 磁盘上已有的要素产物；与本次是否跑过无关，关掉应用重开仍可查看 */
+  elements: RefElements | null
+  onOpenElements: () => void
   onRemove: () => void
 }) {
+  const hasElements = !!elements
   const st = STAGE_META[item.stage]
   const pct = progress ? Math.round(progressRatio(progress) * 100) : 0
   return (
@@ -512,13 +530,21 @@ function RefCard({
       )}
 
       {/* 结果概要 */}
-      {(result || plot) && !extracting && (
+      {(result || plot || hasElements) && !extracting && (
         <div className="ref-card-run">
-          {result && (
+          {/* 有 elements.json 就有入口 —— 与本次是否跑过无关，关掉应用重开照样能看 */}
+          {hasElements && (
             <div className="rcr-result">
-              <span><b>{result.characters.length}</b> 角色</span>
-              <span><b>{result.settings.length}</b> 设定</span>
-              <span><b>{result.foreshadows.length}</b> 伏笔</span>
+              <button className="rcr-kpi" onClick={onOpenElements}>
+                <b>{elements?.characters.length ?? 0}</b> 角色
+              </button>
+              <button className="rcr-kpi" onClick={onOpenElements}>
+                <b>{elements?.settings.length ?? 0}</b> 设定
+              </button>
+              <button className="rcr-kpi" onClick={onOpenElements}>
+                <b>{elements?.foreshadows.length ?? 0}</b> 伏笔
+              </button>
+              <span className="rcr-hint">点击查看详情</span>
             </div>
           )}
           {plot && (
@@ -543,12 +569,12 @@ function RefCard({
         <div className="ref-card-act">
           {item.stage === 'idle' ? (
             <button className="btn btn-primary btn-sm" style={{ width: '100%', justifyContent: 'center' }}
-              disabled={analyzing} onClick={() => onAnalyze(item.id)}>
+              disabled={analyzing} onClick={() => onAnalyze(item)}>
               {analyzing ? '统计中…' : '结构与节奏统计'}
             </button>
           ) : (
             <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }}
-              disabled={analyzing} onClick={() => onAnalyze(item.id)}>
+              disabled={analyzing} onClick={() => onAnalyze(item)}>
               {analyzing ? '统计中…' : '重新统计'}
             </button>
           )}

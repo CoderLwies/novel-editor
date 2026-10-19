@@ -13,7 +13,7 @@ import {
 } from '../reftemplates'
 import type { RefStructure, RefPlot, RefElements } from '../refschema'
 import type { ChecklistItem } from '../refderive'
-import { diffInsightPrompt, templateSummaryPrompt } from '../refprompt'
+import { diffInsightPrompt } from '../refprompt'
 
 const ref = (id: string, title: string, genre = '玄幻奇幻') =>
   ({ id, title, author: 'x', genre, wordCount: 0, chapterCount: 0, volumes: [], dir: '', sourceEncoding: 'utf-8', stage: 'done', createdAt: 1, updatedAt: 1 }) as any
@@ -225,11 +225,5 @@ describe('提示词', () => {
     expect(p).toContain('确定性统计')
     expect(p).toContain('不要编造数字')
     expect(p).toContain('schema')
-  })
-
-  it('模板润色只喂骨架', () => {
-    const p = templateSummaryPrompt('情节', [{ label: '受辱', require: '要有具体场面' }])
-    expect(p).toContain('受辱')
-    expect(p).toContain('不提任何具体作品、人名、地名')
   })
 })

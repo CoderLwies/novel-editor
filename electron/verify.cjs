@@ -1019,6 +1019,73 @@ async function main() {
   console.log('E2E template view ->', tplEmpty)
   console.log('E2E compare view ->', cmpEmpty)
 
+  // 25) 要素详情：直接写一份 elements.json 到参考目录，验证读取与渲染
+  const refMeta2 = JSON.parse(await js(`(() => {
+    const s = JSON.parse(localStorage.getItem('zizhou-state-v1'))
+    return JSON.stringify((s.references||[])[0] || null)
+  })()`))
+  if (refMeta2 && refMeta2.dir) {
+    const analysisDir = path.join(refMeta2.dir, 'analysis')
+    fs.mkdirSync(analysisDir, { recursive: true })
+    fs.writeFileSync(path.join(analysisDir, 'elements.json'), JSON.stringify({
+      schemaVersion: 1, refId: refMeta2.id, computedAt: Date.now(),
+      characters: [
+        { id: 'c1', name: '林渊', aliases: ['小林', '林少'], role: '主角',
+          appearance: '身形清瘦', personality: '隐忍、务实', background: '青云镇林家',
+          motivation: '为父报仇', ability: '剑骨', speech: '',
+          firstChapter: 1, lastChapter: 20, provenance: { refId: refMeta2.id, fromChapter: 1, toChapter: 20 } },
+        { id: 'c2', name: '周衍', aliases: [], role: '反派', appearance: '', personality: '',
+          background: '', motivation: '', ability: '化劲九重', speech: '小师弟',
+          firstChapter: 3, lastChapter: 12, provenance: { refId: refMeta2.id, fromChapter: 3, toChapter: 12 } },
+      ],
+      settings: [
+        { id: 's1', category: 'faction', name: '镇北司', desc: '挂靠兵部，祖制不得调兵入京',
+          status: '活跃', subtype: 'sect', chapters: [1, 5, 9], provenance: { refId: refMeta2.id, fromChapter: 1, toChapter: 9 } },
+      ],
+      foreshadows: [
+        { id: 'f1', title: '身世之谜', detail: '母亲留下的玉佩来历不明', plantChapter: 2, payoffChapter: 18,
+          span: 17, provenance: { refId: refMeta2.id, fromChapter: 2, toChapter: 18 } },
+        { id: 'f2', title: '师兄的背叛', detail: '', plantChapter: 6, payoffChapter: 0,
+          span: 0, provenance: { refId: refMeta2.id, fromChapter: 6, toChapter: 6 } },
+      ],
+    }))
+    // 写入发生在 bundles 加载之后，必须重载页面才能验证「入口由磁盘产物决定」
+    await win.reload()
+    await sleep(2400)
+    await js(`document.querySelector('.shelf-ref-entry')?.click()`)
+    await sleep(900)
+    const cards = await js(`document.querySelectorAll('.reflib-grid .ref-card').length`)
+    const kpis = await js(`[...document.querySelectorAll('.ref-card .rcr-kpi')].map(b=>b.textContent.replace(/\\s+/g,'')).join(' ')`)
+    await js(`document.querySelector('.ref-card .rcr-kpi')?.click()`)
+    await sleep(900)
+    const emModal = await js(`(() => {
+      const m = document.querySelector('.em-modal')
+      if (!m) return { open: false }
+      const chars = [...m.querySelectorAll('.em-card')].map(c=>c.querySelector('.em-name')?.textContent ?? '')
+      return {
+        open: true,
+        title: m.querySelector('.modal-title')?.textContent ?? '',
+        tabs: [...m.querySelectorAll('.em-tab')].map(t=>t.textContent.replace(/\\s+/g,'')).join(' '),
+        cards: chars.length,
+        first: chars[0] ?? '',
+        alias: m.querySelector('.em-alias')?.textContent ?? '',
+        fields: [...m.querySelectorAll('.em-fl')].map(f=>f.textContent).join('/'),
+      }
+    })()`)
+    // 切到伏笔页签，确认埋收跨度渲染
+    await js(`[...document.querySelectorAll('.em-tab')].find(t=>t.textContent.includes('伏笔'))?.click()`)
+    await sleep(500)
+    const fsChips = await js(`[...document.querySelectorAll('.em-card .chip')].map(c=>c.textContent.replace(/\\s+/g,' ').trim()).join(' | ')`)
+    await js(`document.querySelector('.em-modal .modal-head .icon-btn')?.click()`)
+    await sleep(400)
+    console.log('E2E elements fixture -> file written:', fs.existsSync(path.join(analysisDir, 'elements.json')), '| cards:', cards)
+    console.log('E2E elements entry -> kpis:', kpis)
+    console.log('E2E elements modal ->', JSON.stringify(emModal))
+    console.log('E2E elements foreshadows ->', fsChips)
+  } else {
+    console.log('E2E elements fixture -> skipped (no reference dir)')
+  }
+
   console.log('CONSOLE ERRORS:', errors.length ? errors : 'none')
   win.destroy()
   app.quit()
