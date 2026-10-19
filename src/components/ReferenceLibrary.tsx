@@ -13,7 +13,7 @@ import {
   type RefChapter,
 } from '../reference'
 import { uid } from '../utils'
-import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, AI_STAGE_LABEL, type QueueProgress, type AiStage } from '../aiqueue'
+import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, AI_STAGE_LABEL, OUTPUT_TOKENS_PER_BATCH, type QueueProgress, type AiStage } from '../aiqueue'
 import type { RefElements, RefPlot } from '../refschema'
 import { aiReady } from '../ai'
 import { readReferenceAnalysis } from '../reference'
@@ -249,15 +249,17 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
               (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
         )
       } else {
-        const { plot, run: r } = await actions.extractPlot(ref.id, { signal: abort.signal, retryFailed, onProgress })
+        const { plot, run: r, arcError } = await actions.extractPlot(ref.id, { signal: abort.signal, retryFailed, onProgress })
         await loadBundles() // 产物刚写盘，重载后模板库与卷纲面板才拿得到
         setRun((prev) => (prev ? { ...prev, plot, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
         const sk = plot.arcs.filter((a) => a.skeleton).length
         flash(
-          r.pausedByBudget
-            ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；加预算后可继续`
-            : `情节链完成：${plot.beats.length} 拍 · ${plot.arcs.length} 条线（其中 ${sk} 条抽出骨架）` +
-              (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
+          arcError
+            ? `情节拍已保存（${plot.beats.length} 拍），但骨架生成失败：${arcError}。重新点一次「情节链拆解」只会重跑这一步，不重跑已完成的批次。`
+            : r.pausedByBudget
+              ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；加预算后可继续`
+              : `情节链完成：${plot.beats.length} 拍 · ${plot.arcs.length} 条线（其中 ${sk} 条抽出骨架）` +
+                (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
         )
       }
     } catch (e) {
@@ -636,7 +638,10 @@ function CostConfirmModal({
 }) {
   const cfg = DEFAULT_QUEUE_CONFIG
   const avgChars = refItem.chapterCount > 0 ? refItem.wordCount / refItem.chapterCount : 0
-  const est = estimateCost(refItem.chapterCount, cfg.batchChapters, avgChars, cfg.pricing, isPeakHour())
+  const est = estimateCost(
+    refItem.chapterCount, cfg.batchChapters, avgChars, cfg.pricing, isPeakHour(),
+    0.6, OUTPUT_TOKENS_PER_BATCH[stage],
+  )
 
   return (
     <div className="veil" onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}>

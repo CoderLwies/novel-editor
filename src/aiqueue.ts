@@ -243,6 +243,18 @@ export interface CostEstimate {
   peak: boolean
 }
 
+/**
+ * 每批输出 token 的经验值（按阶段区分）。
+ *
+ * 情节链最初按 800 估，实测一部 1171 章的作品是 6183 token/批 —— 低估 7.7 倍。
+ * 原因是每拍都带 title/summary/signal/cost/characters 五个字段，
+ * 长篇一拍的文字量远超「每批几个标签」。预算提示的可信度直接取决于这个数。
+ */
+export const OUTPUT_TOKENS_PER_BATCH: Record<AiStage, number> = {
+  elements: 900,
+  plot: 6200,
+}
+
 export function estimateCost(
   chapterCount: number,
   batchChapters: number,
@@ -251,8 +263,8 @@ export function estimateCost(
   peak = isPeakHour(),
   /** 每千字约 0.6 token（DeepSeek 官方口径：1 中文字符 ≈ 0.6 token） */
   tokensPerKChars = 0.6,
-  /** 输出侧粗估：每批约产出几百字的结构化内容 */
-  outputTokensPerBatch = 800,
+  /** 输出侧粗估：按阶段取经验值，别再用统一的小数字 */
+  outputTokensPerBatch = OUTPUT_TOKENS_PER_BATCH.elements,
 ): CostEstimate {
   const batches = Math.ceil(chapterCount / Math.max(1, batchChapters))
   const avgCharsPerBatch = Math.round(avgChapterChars * batchChapters)

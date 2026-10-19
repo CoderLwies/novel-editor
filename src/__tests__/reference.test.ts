@@ -92,6 +92,27 @@ describe('splitReferenceText 拆卷章', () => {
     expect(r.chapters[0].content).toBe('内容')
   })
 
+  // 实测一部 1171 章的作品：「第一节课」「第二节晚自习」这类正文用语
+  // 被当成章节切了出来。它们在网文里极其常见，不能当标题。
+  it('「第一节课」这类正文用语不被误判为章节', () => {
+    const text = [
+      '第一章 上学',
+      '第一节课开始了，他趴在桌上。',
+      '第二节晚自习，他被叫了出去。',
+      '第二章 回家',
+      '路上遇到熟人。',
+    ].join('\n')
+    const r = splitReferenceText(text)
+    expect(r.chapters.map((c) => c.title)).toEqual(['第一章 上学', '第二章 回家'])
+    expect(r.chapters[0].content).toContain('第一节课开始了')
+    expect(r.chapters[0].content).toContain('第二节晚自习')
+  })
+
+  it('「第X节」若整行极短（疑似真章节）也不切 —— 宁可漏也不错切', () => {
+    const r = splitReferenceText('第一章 甲\n第二节 某\n内容')
+    expect(r.chapters).toHaveLength(1)
+  })
+
   it('Chapter N 英文写法', () => {
     const r = splitReferenceText('Chapter 1 Arrival\nbody\nChapter 2 Departure\nbody2')
     expect(r.chapters.map((c) => c.title)).toEqual(['Chapter 1 Arrival', 'Chapter 2 Departure'])

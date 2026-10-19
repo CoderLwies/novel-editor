@@ -832,20 +832,20 @@ export const actions = {
   async extractPlot(
     id: ID,
     opts: { onProgress?: (p: QueueProgress) => void; signal?: AbortSignal; retryFailed?: boolean } = {},
-  ): Promise<{ plot: RefPlot; run: RunResult }> {
+  ): Promise<{ plot: RefPlot; run: RunResult; arcError: string | null }> {
     const ref = state.references.find((r) => r.id === id)
     if (!ref) throw new Error('参考作品不存在')
     if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口，请先在顶栏「AI 接口设置」里填好 Base URL 与 Key')
 
     if (opts.retryFailed) await clearFailedBatches(ref, 'plot')
 
-    const { plot, run } = await runPlotExtraction(ref, {
+    const { plot, run, arcError } = await runPlotExtraction(ref, {
       ai: state.ai,
       onProgress: opts.onProgress,
       signal: opts.signal,
     })
     actions.updateReference(id, { stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
-    return { plot, run }
+    return { plot, run, arcError }
   },
 
   /**

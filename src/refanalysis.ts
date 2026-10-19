@@ -157,7 +157,7 @@ export async function runElementExtraction(
 export async function runPlotExtraction(
   ref: Reference,
   opts: ExtractOptions,
-): Promise<{ plot: RefPlot; run: RunResult }> {
+): Promise<{ plot: RefPlot; run: RunResult; arcError: string | null }> {
   const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG, ...opts.config }
   const chapters = await readReferenceChapters(ref)
   const batches = planBatches(ref.id, 'plot', chapters.length, config.batchChapters)
@@ -206,28 +206,39 @@ export async function runPlotExtraction(
   const beats = collector.finish(ref.id)
   const briefs = collector.briefs()
 
-  // 组织叙事线与骨架：只喂拍摘要，不喂正文
-  let arcs: PlotArc[] = []
-  if (beats.length) {
-    const { data } = await chatJSONWithUsage<ArcResult>(
-      opts.ai,
-      SYS_PLOT,
-      arcPrompt(ref.title, ref.genre, briefs),
-      60000,
-    )
-    arcs = assembleArcs(ref.id, beats, data, briefs)
-  }
-
-  const plot: RefPlot = {
+  // 关键：**先把 beats 写盘**。组织骨架是最后一步且只有一次调用，
+  // 它失败绝不能连带丢掉前面几十上百批的成果 —— 那意味着用户的 token 全白花。
+  const base: RefPlot = {
     schemaVersion: SCHEMA_VERSION,
     refId: ref.id,
     computedAt: Date.now(),
     beats,
-    arcs,
+    arcs: [],
   }
+  await writeReferenceAnalysis(marked, 'plot', base)
+
+  // 组织叙事线与骨架：只喂拍摘要，不喂正文。失败不致命 —— beats 已经可用。
+  let arcs: PlotArc[] = []
+  let arcError: string | null = null
+  if (beats.length) {
+    try {
+      const { data } = await chatJSONWithUsage<ArcResult>(
+        opts.ai,
+        SYS_PLOT,
+        arcPrompt(ref.title, ref.genre, briefs),
+        60000,
+      )
+      arcs = assembleArcs(ref.id, beats, data, briefs)
+    } catch (e) {
+      arcError = (e as Error).message
+      console.warn('[字舟] 骨架生成失败，已保留情节拍：', arcError)
+    }
+  }
+
+  const plot: RefPlot = { ...base, arcs }
   await writeReferenceAnalysis(marked, 'plot', plot)
   await writeReferenceMeta({ ...marked, stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
-  return { plot, run }
+  return { plot, run, arcError }
 }
 
 function chaptersOf(chapters: Awaited<ReturnType<typeof readReferenceChapters>>, batch: { fromChapter: number; toChapter: number }) {
@@ -241,6 +252,17 @@ const batchFile = (ref: Reference, stage: AiStage, i: number) =>
 
 /** 断点按阶段分文件：elements 与 plot 各自独立，互不覆盖 */
 const checkpointFile = (ref: Reference, stage: AiStage) => `${ref.dir}/analysis/checkpoint-${stage}.json`
+
+/**
+ * 每批输出 token 的经验值。
+ *
+ * 最初按 800 估，实测一部 1171 章的作品是 **6183 token/批**（1.81M ÷ 293），
+ * 低估了 7.7 倍。原因是情节拍的输出不是「每批几个标签」，而是每拍都带
+ * title/summary/signal/cost/characters 五个字段，长篇一拍的文字量相当可观。
+ * 这个数字直接决定预算提示的可信度，宁可保守。
+ */
+export const PLOT_OUTPUT_TOKENS_PER_BATCH = 6200
+export const ELEMENTS_OUTPUT_TOKENS_PER_BATCH = 900
 
 async function writeBatchOutput(ref: Reference, stage: AiStage, i: number, data: unknown): Promise<void> {
   await fsLow.writeFile(batchFile(ref, stage, i), JSON.stringify(data))
@@ -263,6 +285,24 @@ async function readCheckpoint(ref: Reference, stage: AiStage): Promise<QueueChec
     return JSON.parse(await fsLow.readFile(checkpointFile(ref, stage))) as QueueCheckpoint
   } catch {
     return null
+  }
+}
+
+/** 实际 token 用量（供结算与预估校准） */
+export interface PlotUsage {
+  inputTokens: number
+  outputTokens: number
+  batches: number
+}
+
+/** 从 checkpoint 反推上一轮的真实消耗，用于校准下一次预估 */
+export async function readPlotUsage(ref: Reference): Promise<PlotUsage | null> {
+  const cp = await readCheckpoint(ref, 'plot')
+  if (!cp || !cp.totalBatches) return null
+  return {
+    inputTokens: cp.inputTokens,
+    outputTokens: cp.outputTokens,
+    batches: cp.totalBatches,
   }
 }
 
