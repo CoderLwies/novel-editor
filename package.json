@@ -1,7 +1,7 @@
 {
   "name": "zizhou",
   "private": true,
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "字舟 · 网文小说编辑器 - 可交互前端原型 (Electron 桌面应用)",
   "type": "module",
   "main": "electron/main.cjs",
