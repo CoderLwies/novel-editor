@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
 import { runQueue, makeCheckpoint, type BatchOutput } from '../aiqueue-runner'
-import { planBatches, DEFAULT_QUEUE_CONFIG, type QueueCheckpoint, type QueueProgress } from '../aiqueue'
+import { planAllBatches, DEFAULT_QUEUE_CONFIG, type QueueCheckpoint, type QueueProgress } from '../aiqueue'
 import { ElementsMerger } from '../refmerge'
 import { trimForCall, elementsPrompt, SYS_EXTRACTOR, type BatchElements } from '../refprompt'
 
 const CFG = { ...DEFAULT_QUEUE_CONFIG, concurrency: 2, retryBaseDelayMs: 1, budgetYuan: null }
 
 describe('runQueue 执行', () => {
-  const batches = planBatches('r1', 'elements', 20, 4) // 5 批
+  const batches = planAllBatches('r1', 'elements', 20, 4) // 5 批
 
   it('全部批次被完成', async () => {
     const exec = vi.fn(async (b): Promise<BatchOutput> => ({ data: b.index, inputTokens: 100, outputTokens: 20 }))
@@ -90,7 +90,7 @@ describe('runQueue 执行', () => {
       throw e
     })
     await runQueue({
-      batches: planBatches('r', 'elements', 4, 4), config: CFG, checkpoint: null,
+      batches: planAllBatches('r', 'elements', 4, 4), config: CFG, checkpoint: null,
       execute: exec, onCheckpoint: () => {}, onProgress: () => {},
     })
     expect(exec).toHaveBeenCalledTimes(1) // 只试一次
@@ -99,7 +99,7 @@ describe('runQueue 执行', () => {
   it('限流会重试后成功', async () => {
     let n = 0
     const r = await runQueue({
-      batches: planBatches('r', 'elements', 4, 4), config: { ...CFG, maxRetries: 3 }, checkpoint: null,
+      batches: planAllBatches('r', 'elements', 4, 4), config: { ...CFG, maxRetries: 3 }, checkpoint: null,
       execute: async () => {
         n++
         if (n < 2) {
@@ -148,7 +148,7 @@ describe('runQueue 执行', () => {
   it('进度回调里失败批次计入分母', async () => {
     const seen: QueueProgress[] = []
     await runQueue({
-      batches: planBatches('r', 'elements', 8, 2), // 4 批
+      batches: planAllBatches('r', 'elements', 8, 2), // 4 批
       config: { ...CFG, maxRetries: 0 }, checkpoint: null,
       execute: async (b) => {
         if (b.index === 3) {
@@ -273,7 +273,7 @@ describe('prompt 构造', () => {
   })
 
   it('prompt 带上已知名单，让模型对号入座', () => {
-    const batch = planBatches('r1', 'elements', 8, 4)[1]
+    const batch = planAllBatches('r1', 'elements', 8, 4)[1]
     const p = elementsPrompt(
       '示例书', '玄幻',
       batch,
@@ -287,13 +287,13 @@ describe('prompt 构造', () => {
   })
 
   it('首批没有已知名单时明确说明都是新角色', () => {
-    const batch = planBatches('r1', 'elements', 4, 4)[0]
+    const batch = planAllBatches('r1', 'elements', 4, 4)[0]
     const p = elementsPrompt('示例书', '玄幻', batch, [{ title: '第1章', text: '正文' }], { characters: [], settings: [] }, 10000)
     expect(p).toContain('本批出现的人物都是新角色')
   })
 
   it('prompt 含反幻觉约束', () => {
-    const batch = planBatches('r1', 'elements', 4, 4)[0]
+    const batch = planAllBatches('r1', 'elements', 4, 4)[0]
     const p = elementsPrompt('示例书', '玄幻', batch, [{ title: '第1章', text: '正文' }], { characters: [], settings: [] }, 10000)
     expect(p).toContain('一律留空字符串')
     expect(p).toContain('不得从后文或常识补全')

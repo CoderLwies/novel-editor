@@ -13,7 +13,7 @@ import {
   type RefChapter,
 } from '../reference'
 import { uid } from '../utils'
-import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, AI_STAGE_LABEL, OUTPUT_TOKENS_PER_BATCH, type QueueProgress, type AiStage } from '../aiqueue'
+import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, AI_STAGE_LABEL, OUTPUT_TOKENS_PER_BATCH, resolveScope, scopeChapterCount, SCOPE_ALL, SCOPE_HEAD, SCOPE_PER_VOLUME, type QueueProgress, type AiStage, type ScopeSpec } from '../aiqueue'
 import type { RefElements, RefPlot } from '../refschema'
 import { aiReady } from '../ai'
 import { readReferenceAnalysis } from '../reference'
@@ -68,6 +68,8 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   const [analyzingId, setAnalyzingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [confirmRef, setConfirmRef] = useState<{ ref: Reference; stage: AiStage } | null>(null)
+  /** 分析档位。默认「每卷前 20 章」：长篇的价值在卷间对比，先花小钱试水 */
+  const [scopeSpec, setScopeSpec] = useState<ScopeSpec>({ kind: SCOPE_PER_VOLUME, perVolume: 20 })
   const [run, setRun] = useState<RunState | null>(null)
   const [view, setView] = useState<'books' | 'templates' | 'compare'>('books')
   const [bundles, setBundles] = useState<RefAnalysisBundle[]>([])
@@ -250,12 +252,13 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
 
   async function startExtraction(ref: Reference, stage: AiStage, retryFailed = false) {
     const abort = new AbortController()
+    const spec = scopeSpec
     setConfirmRef(null)
     setRun({ refId: ref.id, stage, progress: null, abort, result: null, plot: null, failedBatches: 0, pausedByBudget: false })
     const onProgress = (p: QueueProgress) => setRun((prev) => (prev ? { ...prev, progress: p } : prev))
     try {
       if (stage === 'elements') {
-        const { elements, run: r } = await actions.extractElements(ref.id, { signal: abort.signal, retryFailed, onProgress })
+        const { elements, run: r } = await actions.extractElements(ref.id, { signal: abort.signal, retryFailed, onProgress, scope: spec })
         await loadBundles() // 产物刚写盘，重载后卡片与要素详情才拿得到
         setRun((prev) => (prev ? { ...prev, result: elements, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
         const c = elements.characters.length
@@ -268,7 +271,7 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
               (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
         )
       } else {
-        const { plot, run: r, arcError } = await actions.extractPlot(ref.id, { signal: abort.signal, retryFailed, onProgress })
+        const { plot, run: r, arcError } = await actions.extractPlot(ref.id, { signal: abort.signal, retryFailed, onProgress, scope: spec })
         await loadBundles() // 产物刚写盘，重载后模板库与卷纲面板才拿得到
         setRun((prev) => (prev ? { ...prev, plot, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
         const sk = plot.arcs.filter((a) => a.skeleton).length
@@ -469,6 +472,9 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
           refItem={confirmRef.ref}
           stage={confirmRef.stage}
           aiReady={aiReady(state.ai)}
+          structure={bundleOf(confirmRef.ref.id)?.structure ?? null}
+          scopeSpec={scopeSpec}
+          onScopeChange={setScopeSpec}
           onCancel={() => setConfirmRef(null)}
           onConfirm={() => startExtraction(confirmRef.ref, confirmRef.stage)}
         />
@@ -664,19 +670,28 @@ function CostConfirmModal({
   refItem,
   stage,
   aiReady: ready,
+  structure,
   onCancel,
   onConfirm,
+  scopeSpec,
+  onScopeChange,
 }: {
   refItem: Reference
   stage: AiStage
   aiReady: boolean
+  structure: RefStructure | null
   onCancel: () => void
   onConfirm: () => void
+  scopeSpec: ScopeSpec
+  onScopeChange: (s: ScopeSpec) => void
 }) {
   const cfg = DEFAULT_QUEUE_CONFIG
   const avgChars = refItem.chapterCount > 0 ? refItem.wordCount / refItem.chapterCount : 0
+  const total = refItem.chapterCount || structure?.chapterCount || 0
+  const scope = resolveScope(scopeSpec, total, structure?.volumes ?? [])
+  const analyzed = scopeChapterCount(scope)
   const est = estimateCost(
-    refItem.chapterCount, cfg.batchChapters, avgChars, cfg.pricing, isPeakHour(),
+    analyzed, cfg.batchChapters, avgChars, cfg.pricing, isPeakHour(),
     0.6, OUTPUT_TOKENS_PER_BATCH[stage],
   )
 
@@ -698,6 +713,32 @@ function CostConfirmModal({
             </div>
           )}
           <div className="ref-row"><span className="k">规模</span><span className="v">{refItem.chapterCount} 章 · {formatNumber(refItem.wordCount)} 字</span></div>
+
+          {/* 档位：跑一本书很贵，先花小钱试水再决定要不要全量 */}
+          <div className="scope-picker">
+            <div className="eyebrow" style={{ marginBottom: 7 }}>分析范围</div>
+            <div className="scope-opts">
+              {[
+                { spec: { kind: SCOPE_PER_VOLUME, perVolume: 20 } as ScopeSpec, t: '每卷前 20 章', d: '推荐 · 能看到每一卷的开局节奏' },
+                { spec: { kind: SCOPE_HEAD, head: 100 } as ScopeSpec, t: '前 100 章', d: '试水 · 约 ¥1' },
+                { spec: { kind: SCOPE_ALL } as ScopeSpec, t: '全书', d: '完整 · 最贵' },
+              ].map((o) => (
+                <button key={o.t} className={`scope-opt ${JSON.stringify(scopeSpec) === JSON.stringify(o.spec) ? 'on' : ''}`}
+                  disabled={o.spec.kind === SCOPE_PER_VOLUME && !structure?.volumes?.length}
+                  onClick={() => onScopeChange(o.spec)}>
+                  <span className="so-t">{o.t}</span>
+                  <span className="so-d">{o.d}</span>
+                </button>
+              ))}
+            </div>
+            {scopeSpec.kind !== SCOPE_ALL && (
+              <div className="scope-warn">
+                本次只分析 {analyzed} / {total} 章。产物会标注覆盖范围，
+                卷配比与模板均<b>基于已分析章节</b>，不代表全书。
+              </div>
+            )}
+          </div>
+
           <div className="ref-row"><span className="k">批次</span><span className="v">{est.batches} 批（每批 {cfg.batchChapters} 章）</span></div>
           <div className="ref-row">
             <span className="k">预计花费</span>

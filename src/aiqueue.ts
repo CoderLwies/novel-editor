@@ -126,29 +126,113 @@ export interface BatchTask {
 }
 
 /**
- * 按固定批大小切分全书。
+ * 分析范围。
  *
- * 关键：**批边界只依赖总章数与批大小**，不依赖任何运行期状态 ——
+ * 情节链依赖连续的叙事（continuesFromPrev 要靠上下文判断），所以**只能取连续区间**，
+ * 不能「每 N 章抽 1 章」——那样模型判不出延续，出来的链是碎的。
+ * 安全的形式只有两种：全书，或若干个互不重叠的连续区间（典型是每卷的前若干章）。
+ */
+export interface ChapterScope {
+  /** 档位名，直接显示给用户 */
+  label: string
+  /** 要分析的连续区间，1 起闭区间，互不重叠 */
+  ranges: { from: number; to: number }[]
+  /** 全书总章数（未分析的部分也记下来，用于诚实标注） */
+  totalChapters: number
+}
+
+export const SCOPE_ALL = 'all'
+export const SCOPE_HEAD = 'head'
+export const SCOPE_PER_VOLUME = 'perVolume'
+
+/** 档位的可选参数 */
+export interface ScopeSpec {
+  kind: typeof SCOPE_ALL | typeof SCOPE_HEAD | typeof SCOPE_PER_VOLUME
+  /** SCOPE_HEAD：取前 N 章 */
+  head?: number
+  /** SCOPE_PER_VOLUME：每卷取前 N 章 */
+  perVolume?: number
+}
+
+export const DEFAULT_SCOPE_SPECS: ScopeSpec[] = [
+  { kind: SCOPE_ALL },
+  { kind: SCOPE_HEAD, head: 100 },
+  { kind: SCOPE_PER_VOLUME, perVolume: 20 },
+]
+
+/**
+ * 把档位展开成具体的连续区间。
+ *
+ * 卷的章区间来自结构统计（本地计算，不花钱），所以这里需要 volumes。
+ */
+export function resolveScope(spec: ScopeSpec, totalChapters: number, volumes: { startChapter: number; endChapter: number }[]): ChapterScope {
+  const clamp = (r: { from: number; to: number }) => ({
+    from: Math.max(1, Math.min(r.from, totalChapters)),
+    to: Math.max(0, Math.min(r.to, totalChapters)),
+  })
+  let label: string
+  let ranges: { from: number; to: number }[]
+
+  if (spec.kind === SCOPE_HEAD) {
+    const n = Math.max(1, Math.min(spec.head ?? 100, totalChapters))
+    label = `前 ${n} 章`
+    ranges = [{ from: 1, to: n }]
+  } else if (spec.kind === SCOPE_PER_VOLUME && volumes.length) {
+    const n = Math.max(1, spec.perVolume ?? 20)
+    ranges = volumes
+      .map((v) => clamp({ from: v.startChapter, to: Math.min(v.endChapter, v.startChapter + n - 1) }))
+      .filter((r) => r.to >= r.from)
+    label = `每卷前 ${n} 章`
+  } else {
+    label = '全书'
+    ranges = [{ from: 1, to: totalChapters }]
+  }
+  return { label, ranges: ranges.length ? ranges : [{ from: 1, to: totalChapters }], totalChapters }
+}
+
+/** 该范围实际覆盖多少章 */
+export function scopeChapterCount(scope: ChapterScope): number {
+  return scope.ranges.reduce((s, r) => s + (r.to - r.from + 1), 0)
+}
+
+/** 范围是否覆盖全书 —— 决定界面要不要提示「结论仅基于部分章节」 */
+export function scopeIsPartial(scope: ChapterScope): boolean {
+  return scopeChapterCount(scope) < scope.totalChapters
+}
+
+/**
+ * 按固定批大小切分**指定范围**。
+ *
+ * 关键：**批边界只依赖范围与批大小**，不依赖任何运行期状态 ——
  * 这样恢复时用同样的输入就能算出同样的批次，从而知道哪些已完成、哪些没有。
+ * 同一批内章节必须连续，所以按区间逐段切，批序号跨区间连续累加。
  */
 export function planBatches(
   refId: ID,
   stage: AiStage,
-  chapterCount: number,
+  scope: ChapterScope,
   batchChapters: number,
 ): BatchTask[] {
   const out: BatchTask[] = []
   const step = Math.max(1, batchChapters)
-  for (let from = 1, i = 0; from <= chapterCount; from += step, i++) {
-    out.push({
-      refId,
-      stage,
-      index: i,
-      fromChapter: from,
-      toChapter: Math.min(from + step - 1, chapterCount),
-    })
+  let i = 0
+  for (const r of scope.ranges) {
+    for (let from = r.from; from <= r.to; from += step) {
+      out.push({
+        refId,
+        stage,
+        index: i++,
+        fromChapter: from,
+        toChapter: Math.min(from + step - 1, r.to),
+      })
+    }
   }
   return out
+}
+
+/** 便捷形式：全书范围下的批次划分 */
+export function planAllBatches(refId: ID, stage: AiStage, chapterCount: number, batchChapters: number): BatchTask[] {
+  return planBatches(refId, stage, { label: '全书', ranges: [{ from: 1, to: chapterCount }], totalChapters: chapterCount }, batchChapters)
 }
 
 /* ============================== 错误分类 ============================== */
@@ -266,6 +350,7 @@ export function estimateCost(
   /** 输出侧粗估：按阶段取经验值，别再用统一的小数字 */
   outputTokensPerBatch = OUTPUT_TOKENS_PER_BATCH.elements,
 ): CostEstimate {
+  // 按批计费：分档后章数变少，直接用章数会高估
   const batches = Math.ceil(chapterCount / Math.max(1, batchChapters))
   const avgCharsPerBatch = Math.round(avgChapterChars * batchChapters)
   const inputTokens = Math.round(batches * (avgCharsPerBatch / 1000) * tokensPerKChars)

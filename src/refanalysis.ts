@@ -6,11 +6,11 @@
  * 会先跑阶段一作为体检——不值得深挖的书在这里就能看出来。
  */
 import type { AIConfig, Reference, RefStage } from './types'
-import type { RefStructure, RefElements, RefPlot, PlotArc } from './refschema'
+import type { RefStructure, RefElements, RefPlot, PlotArc, ScopeNote } from './refschema'
 import { computeStructure } from './refstats'
-import { readReferenceChapters, writeReferenceAnalysis, writeReferenceMeta, scanRawBatches, readRawManifest, writeRawManifest } from './reference'
+import { readReferenceChapters, writeReferenceAnalysis, writeReferenceMeta, scanRawBatches, readRawManifest, writeRawManifest, readReferenceAnalysis } from './reference'
 import { fsLow } from './fs'
-import { planBatches, DEFAULT_QUEUE_CONFIG, type BatchTask, type AiStage, type QueueCheckpoint, type QueueConfig, type QueueProgress } from './aiqueue'
+import { planBatches, resolveScope, scopeChapterCount, scopeIsPartial, DEFAULT_QUEUE_CONFIG, SCOPE_ALL, type BatchTask, type AiStage, type QueueCheckpoint, type QueueConfig, type QueueProgress, type ScopeSpec, type ChapterScope } from './aiqueue'
 import { runQueue, type RunResult } from './aiqueue-runner'
 import { chatJSONWithUsage } from './ai'
 import { elementsPrompt, SYS_EXTRACTOR, plotPrompt, arcPrompt, SYS_PLOT, type BatchElements, type BatchPlot, type ArcResult } from './refprompt'
@@ -59,8 +59,23 @@ export async function analyzeStructure(
 
 /* ======================= 阶段二：要素抽取（需 AI） ======================= */
 
+/** 解析本次要分析的范围：默认全书；分档需要结构统计提供卷区间 */
+async function resolveRunScope(
+  ref: Reference,
+  spec: ScopeSpec | undefined,
+): Promise<{ scope: ChapterScope; structure: RefStructure | null }> {
+  const structure = await readReferenceAnalysis<RefStructure>(ref, 'structure')
+  const total = ref.chapterCount || structure?.chapterCount || 0
+  return {
+    scope: resolveScope(spec ?? { kind: SCOPE_ALL }, total, structure?.volumes ?? []),
+    structure,
+  }
+}
+
 export interface ExtractOptions {
   config?: Partial<QueueConfig>
+  /** 分析档位；不传即全书 */
+  scope?: ScopeSpec
   ai: AIConfig
   onProgress?: (p: QueueProgress) => void
   signal?: AbortSignal
@@ -78,7 +93,8 @@ export async function runElementExtraction(
 ): Promise<{ elements: RefElements; run: RunResult }> {
   const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG, ...opts.config }
   const chapters = await readReferenceChapters(ref)
-  const batches = planBatches(ref.id, 'elements', chapters.length, config.batchChapters)
+  const { scope } = await resolveRunScope(ref, opts.scope)
+  const batches = planBatches(ref.id, 'elements', scope, config.batchChapters)
   if (!batches.length) throw new Error('没有可分析的章节')
 
   const marked: Reference = { ...ref, stage: 'reading' }
@@ -136,6 +152,8 @@ export async function runElementExtraction(
         stage: 'elements',
         batchChapters: config.batchChapters,
         chapterCount: chapters.length,
+        scopeLabel: scope.label,
+        scopeRanges: scope.ranges,
         totalBatches: batches.length,
         batches: batches.map((b) => ({ index: b.index, from: b.fromChapter, to: b.toChapter })),
       })
@@ -148,10 +166,17 @@ export async function runElementExtraction(
   await writeReferenceMeta({ ...marked, stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
 
   const merged = merger.finish(ref.id)
+  const scopeNote: ScopeNote = {
+    label: scope.label,
+    analyzed: scopeChapterCount(scope),
+    total: scope.totalChapters,
+    partial: scopeIsPartial(scope),
+  }
   const elements: RefElements = {
     schemaVersion: SCHEMA_VERSION,
     refId: ref.id,
     computedAt: Date.now(),
+    scope: scopeNote,
     ...merged,
   }
   await writeReferenceAnalysis(marked, 'elements', elements)
@@ -171,7 +196,14 @@ export async function runPlotExtraction(
 ): Promise<{ plot: RefPlot; run: RunResult; arcError: string | null }> {
   const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG, ...opts.config }
   const chapters = await readReferenceChapters(ref)
-  const batches = planBatches(ref.id, 'plot', chapters.length, config.batchChapters)
+  const { scope } = await resolveRunScope(ref, opts.scope)
+  const scopeNote: ScopeNote = {
+    label: scope.label,
+    analyzed: scopeChapterCount(scope),
+    total: scope.totalChapters,
+    partial: scopeIsPartial(scope),
+  }
+  const batches = planBatches(ref.id, 'plot', scope, config.batchChapters)
   if (!batches.length) throw new Error('没有可分析的章节')
 
   const marked: Reference = { ...ref, stage: 'reading' }
@@ -217,6 +249,8 @@ export async function runPlotExtraction(
         stage: 'plot',
         batchChapters: config.batchChapters,
         chapterCount: chapters.length,
+        scopeLabel: scope.label,
+        scopeRanges: scope.ranges,
         totalBatches: batches.length,
         batches: batches.map((b) => ({ index: b.index, from: b.fromChapter, to: b.toChapter })),
       })
@@ -235,6 +269,7 @@ export async function runPlotExtraction(
     schemaVersion: SCHEMA_VERSION,
     refId: ref.id,
     computedAt: Date.now(),
+    scope: scopeNote,
     beats,
     arcs: [],
   }
@@ -344,7 +379,6 @@ export async function rebuildFromRaw(
 ): Promise<{ ok: true; batches: number } | { ok: false; reason: string }> {
   const chapters = await readReferenceChapters(ref)
   const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG }
-  const batches = planBatches(ref.id, stage, chapters.length, config.batchChapters)
   const persisted = await scanRawBatches(ref, stage, config.batchChapters)
 
   if (!persisted.length) return { ok: false, reason: '缓存目录里没有任何批次结果，无法重建' }
@@ -356,6 +390,16 @@ export async function rebuildFromRaw(
       reason: `缓存是按 ${manifest.chapterCount} 章落盘的，当前是 ${chapters.length} 章 —— 拆章规则已变，缓存对不上，需要重跑`,
     }
   }
+
+  // 按缓存记录的范围重建批次（分档跑时不是全书），并校验档位是否变过
+  const scope: ChapterScope = manifest?.scopeRanges?.length
+    ? {
+        label: manifest.scopeLabel ?? '（缓存档位）',
+        ranges: manifest.scopeRanges,
+        totalChapters: manifest?.chapterCount ?? chapters.length,
+      }
+    : { label: '全书', ranges: [{ from: 1, to: chapters.length }], totalChapters: chapters.length }
+  const batches = planBatches(ref.id, stage, scope, config.batchChapters)
 
   // 匹配只看批次序号是否在当前划分内。
   // 不能要求 from/to 严格相等 —— 末批常常是残缺的（章数不整除批大小）。

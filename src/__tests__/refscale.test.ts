@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { runQueue } from '../aiqueue-runner'
-import { planBatches, DEFAULT_QUEUE_CONFIG, costOf, type QueueProgress } from '../aiqueue'
+import { planAllBatches, DEFAULT_QUEUE_CONFIG, costOf, type QueueProgress } from '../aiqueue'
 import { ElementsMerger } from '../refmerge'
 
 const CFG = { ...DEFAULT_QUEUE_CONFIG, concurrency: 3, retryBaseDelayMs: 1 }
@@ -8,7 +8,7 @@ const CFG = { ...DEFAULT_QUEUE_CONFIG, concurrency: 3, retryBaseDelayMs: 1 }
 /** 模拟 72 批真实规模跑一遍 */
 describe('286 章规模的端到端行为', () => {
   const CH = 286
-  const batches = planBatches('r1', 'elements', CH, 4)
+  const batches = planAllBatches('r1', 'elements', CH, 4)
 
   it('批次划分正确', () => {
     expect(batches).toHaveLength(72)
@@ -34,7 +34,7 @@ describe('286 章规模的端到端行为', () => {
   it('中途失败后断点恢复不重复调用已完成批次', async () => {
     let calls = 0
     const first = await runQueue({
-      batches: planBatches('r1', 'elements', 20, 4), // 5 批
+      batches: planAllBatches('r1', 'elements', 20, 4), // 5 批
       config: { ...CFG, maxRetries: 0 }, checkpoint: null,
       execute: async (b) => {
         calls++
@@ -52,7 +52,7 @@ describe('286 章规模的端到端行为', () => {
 
     // 直接续跑：失败批次也算「已处理」，不自动重跑（避免反复烧 token）
     calls = 0
-    const all = planBatches('r1', 'elements', 20, 4)
+    const all = planAllBatches('r1', 'elements', 20, 4)
     const second = await runQueue({
       batches: all, config: { ...CFG, maxRetries: 0 }, checkpoint: first.checkpoint,
       execute: async () => {
@@ -80,7 +80,7 @@ describe('286 章规模的端到端行为', () => {
   })
 
   it('预算耗尽暂停后可继续，且不丢失已完成批次', async () => {
-    const bs = planBatches('r1', 'elements', 40, 4) // 10 批
+    const bs = planAllBatches('r1', 'elements', 40, 4) // 10 批
     // 每批花约 0.015 元，预算 0.05 → 约 3 批后暂停
     const first = await runQueue({
       batches: bs, config: { ...CFG, budgetYuan: 0.05 }, checkpoint: null,
@@ -105,7 +105,7 @@ describe('286 章规模的端到端行为', () => {
   it('进度上报单调递增，失败批次也推进进度', async () => {
     const seen: QueueProgress[] = []
     await runQueue({
-      batches: planBatches('r1', 'elements', 12, 2), // 6 批
+      batches: planAllBatches('r1', 'elements', 12, 2), // 6 批
       config: { ...CFG, maxRetries: 0 }, checkpoint: null,
       execute: async (b) => {
         if (b.index === 4) {

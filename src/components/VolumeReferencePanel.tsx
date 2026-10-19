@@ -75,13 +75,28 @@ export default function VolumeReferencePanel({
     [withMix],
   )
 
+  // 覆盖范围：分档跑时后半卷没分析，卷配比会偏低 —— 必须明说，否则等于用残缺数字做决策
+  const scope = bundles.find((b) => b.plot?.scope?.partial)?.plot?.scope
+
   return (
     <PanelShell
       title="卷纲参考"
       context={volumeTitle}
       onClose={onClose}
-      footer={withMix.length ? `《${withMix.map((b) => b.ref.title).join('》《')}》 · 本地统计，无 token 消耗` : undefined}
+      footer={
+        scope
+          ? `参考书按「${scope.label}」分析（${scope.analyzed}/${scope.total} 章）· 下列卷配比仅代表已分析章节，不是全书`
+          : withMix.length
+            ? `《${withMix.map((b) => b.ref.title).join('》《')}》 · 本地统计，无 token 消耗`
+            : undefined
+      }
     >
+      {scope && (
+        <div className="scope-warn" style={{ marginBottom: 14 }}>
+          部分参考书只分析了「{scope.label}」。<b>卷配比按已分析章节算</b>，
+          未分析的那部分算作 0，所以实际冲突/爽点占比会高于这里显示的数字。
+        </div>
+      )}
       {!hasOutline && (
         <WarnBox>
           本卷还没拆章，看不出真实配比。下面是同题材的参考卷节奏，可作参照。

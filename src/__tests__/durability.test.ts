@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { runQueue, makeCheckpoint } from '../aiqueue-runner'
-import { planBatches, DEFAULT_QUEUE_CONFIG } from '../aiqueue'
+import { planAllBatches, DEFAULT_QUEUE_CONFIG } from '../aiqueue'
 import { splitReferenceText } from '../reference'
 
 const CFG = { ...DEFAULT_QUEUE_CONFIG, concurrency: 1, retryBaseDelayMs: 1, budgetYuan: null }
-const batches = planBatches('r1', 'plot', 12, 4) // 3 批
+const batches = planAllBatches('r1', 'plot', 12, 4) // 3 批
 
 /**
  * 落盘可靠性：跑一本书的 token 花费很大，
@@ -44,7 +44,7 @@ describe('重试消耗要记账', () => {
   it('失败尝试花掉的 token 计入总量（否则预算控制失准）', async () => {
     let n = 0
     const r = await runQueue({
-      batches: planBatches('r1', 'plot', 4, 4), config: CFG, checkpoint: null,
+      batches: planAllBatches('r1', 'plot', 4, 4), config: CFG, checkpoint: null,
       execute: async () => {
         n++
         if (n === 1) {
@@ -65,7 +65,7 @@ describe('重试消耗要记账', () => {
 
   it('最终失败批次的重试消耗也计入', async () => {
     const r = await runQueue({
-      batches: planBatches('r1', 'plot', 4, 4), config: { ...CFG, maxRetries: 2 }, checkpoint: null,
+      batches: planAllBatches('r1', 'plot', 4, 4), config: { ...CFG, maxRetries: 2 }, checkpoint: null,
       execute: async () => {
         const e = new Error('鉴权失败') as Error & { kind?: string; usage?: { inputTokens: number; outputTokens: number } }
         e.kind = 'auth'
@@ -99,19 +99,19 @@ describe('中断语义', () => {
 
 describe('批次划分稳定性', () => {
   it('同样的输入永远得到同样的批次（重建的前提）', () => {
-    const a = planBatches('r1', 'plot', 985, 4)
-    const b = planBatches('r1', 'plot', 985, 4)
+    const a = planAllBatches('r1', 'plot', 985, 4)
+    const b = planAllBatches('r1', 'plot', 985, 4)
     expect(a).toEqual(b)
     expect(a).toHaveLength(247) // 985 章修正后的批数
   })
 
   it('批次从头顺序对齐：章区间前段相同，差异出在尾部', () => {
     // 前 985 章的划分完全一致 —— 所以只比对区间不足以发现缓存失效
-    expect(planBatches('r1', 'plot', 1171, 4)[50].toChapter).toBe(planBatches('r1', 'plot', 985, 4)[50].toChapter)
-    expect(planBatches('r1', 'plot', 1171, 4)).toHaveLength(293)
-    expect(planBatches('r1', 'plot', 985, 4)).toHaveLength(247)
+    expect(planAllBatches('r1', 'plot', 1171, 4)[50].toChapter).toBe(planAllBatches('r1', 'plot', 985, 4)[50].toChapter)
+    expect(planAllBatches('r1', 'plot', 1171, 4)).toHaveLength(293)
+    expect(planAllBatches('r1', 'plot', 985, 4)).toHaveLength(247)
     // 真正的不一致：总章节数变了
-    expect(planBatches('r1', 'plot', 1171, 4).length).not.toBe(planBatches('r1', 'plot', 985, 4).length)
+    expect(planAllBatches('r1', 'plot', 1171, 4).length).not.toBe(planAllBatches('r1', 'plot', 985, 4).length)
   })
 
   it('因此重建必须靠 manifest 的 chapterCount 校验，而不是逐批比对区间', () => {

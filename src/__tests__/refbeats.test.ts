@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { BeatCollector, assembleArcs } from '../refbeats'
 import { plotPrompt, arcPrompt, trimForCall, type BatchPlot, type ArcResult } from '../refprompt'
 import type { PlotBeat } from '../refschema'
-import { planBatches } from '../aiqueue'
+import { planAllBatches } from '../aiqueue'
 
 const mkBeats = (beats: BatchPlot): BatchPlot => beats
 
@@ -92,7 +92,7 @@ describe('BeatCollector 跨批合并', () => {
 
   it('72 批模拟：一段情节只产生预期数量的拍', () => {
     const c = new BeatCollector()
-    const batches = planBatches('r1', 'plot', 288, 4)
+    const batches = planAllBatches('r1', 'plot', 288, 4)
     // 每 3 批一段新情节，共 24 段
     for (let bi = 0; bi < batches.length; bi++) {
       const b = batches[bi]
@@ -184,7 +184,7 @@ describe('assembleArcs 叙事线组装', () => {
 })
 
 describe('情节链 prompt', () => {
-  const batch = planBatches('r1', 'plot', 20, 4)[1]
+  const batch = planAllBatches('r1', 'plot', 20, 4)[1]
 
   it('给出上一拍的摘要供延续判断', () => {
     const p = plotPrompt('示例书', '玄幻', batch, [{ title: '第5章', text: '正文' }], {

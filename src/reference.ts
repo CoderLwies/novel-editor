@@ -310,8 +310,11 @@ export interface RawManifest {
   stage: string
   /** 落盘时的批大小 */
   batchChapters: number
-  /** 落盘时的总章节数；与当前不一致说明拆章规则变了 */
+  /** 落盘时的全书中数；与当前不一致说明拆章规则变了 */
   chapterCount: number
+  /** 本次分析的范围。分档跑时与全书不同，重建必须按它匹配，否则会串批次 */
+  scopeLabel?: string
+  scopeRanges?: { from: number; to: number }[]
   totalBatches: number
   batches: { index: number; from: number; to: number }[]
 }

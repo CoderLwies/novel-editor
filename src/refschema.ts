@@ -172,10 +172,29 @@ export interface PlotSkeleton {
   suggestedSpan: number
 }
 
+/**
+ * 分析范围标注。
+ *
+ * 分档跑时产物只覆盖部分章节，但卷配比、模板这些**看起来**仍是全书结论 ——
+ * 不标注就是在用一个残缺数字误导写作决策。
+ */
+export interface ScopeNote {
+  /** 档位名，如「每卷前 20 章」 */
+  label: string
+  /** 实际分析了多少章 */
+  analyzed: number
+  /** 全书总章数 */
+  total: number
+  /** 是否只分析了部分（true 时界面必须提示） */
+  partial: boolean
+}
+
 export interface RefPlot {
   schemaVersion: number
   refId: ID
   computedAt: number
+  /** 本次分析的覆盖范围；旧数据缺此字段时按全书处理 */
+  scope?: ScopeNote
   beats: PlotBeat[]
   arcs: PlotArc[]
 }
@@ -236,6 +255,8 @@ export interface RefElements {
   schemaVersion: number
   refId: ID
   computedAt: number
+  /** 本次分析的覆盖范围 */
+  scope?: ScopeNote
   characters: RefCharacter[]
   settings: RefSetting[]
   foreshadows: RefForeshadow[]

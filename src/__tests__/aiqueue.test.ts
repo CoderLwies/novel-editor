@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  planBatches,
+  planAllBatches,
   shouldRetry,
   backoffMs,
   checkpointValid,
@@ -33,7 +33,7 @@ const mkCp = (over: Partial<QueueCheckpoint> = {}): QueueCheckpoint => ({
 
 describe('planBatches 批次划分', () => {
   it('按固定批大小切分，最后一批可为残缺', () => {
-    const b = planBatches('r', 'elements', 10, 4)
+    const b = planAllBatches('r', 'elements', 10, 4)
     expect(b.map((x) => [x.fromChapter, x.toChapter])).toEqual([
       [1, 4],
       [5, 8],
@@ -43,23 +43,23 @@ describe('planBatches 批次划分', () => {
   })
 
   it('批大小为 0 或负数时不产生死循环', () => {
-    expect(planBatches('r', 'plot', 5, 0).length).toBe(5)
-    expect(planBatches('r', 'plot', 5, -3).length).toBe(5)
+    expect(planAllBatches('r', 'plot', 5, 0).length).toBe(5)
+    expect(planAllBatches('r', 'plot', 5, -3).length).toBe(5)
   })
 
   it('章数为 0 时无批次', () => {
-    expect(planBatches('r', 'elements', 0, 4)).toEqual([])
+    expect(planAllBatches('r', 'elements', 0, 4)).toEqual([])
   })
 
   it('划分是纯函数：同样输入必得同样结果（断点恢复的前提）', () => {
-    const a = planBatches('r', 'elements', 286, 4)
-    const b = planBatches('r', 'elements', 286, 4)
+    const a = planAllBatches('r', 'elements', 286, 4)
+    const b = planAllBatches('r', 'elements', 286, 4)
     expect(a).toEqual(b)
     expect(a).toHaveLength(72) // 286/4 向上取整
   })
 
   it('章不重不漏地覆盖全书', () => {
-    const b = planBatches('r', 'plot', 23, 5)
+    const b = planAllBatches('r', 'plot', 23, 5)
     const covered = new Set<number>()
     for (const x of b) for (let i = x.fromChapter; i <= x.toChapter; i++) covered.add(i)
     expect(covered.size).toBe(23)
@@ -94,7 +94,7 @@ describe('错误分类与重试', () => {
 })
 
 describe('断点续跑', () => {
-  const batches = planBatches('r1', 'elements', 20, 4)
+  const batches = planAllBatches('r1', 'elements', 20, 4)
 
   it('批大小一致时 checkpoint 有效', () => {
     expect(checkpointValid(mkCp(), 4)).toBe(true)
@@ -114,7 +114,7 @@ describe('断点续跑', () => {
   })
 
   it('清空 failed 后失败批次会重新入队（供「重跑失败批次」用）', () => {
-    const batches5 = planBatches('r1', 'elements', 20, 4)
+    const batches5 = planAllBatches('r1', 'elements', 20, 4)
     const failed: TaskError[] = [{ kind: 'parse', message: 'x', batchIndex: 2, attempt: 2 }]
     const cp = mkCp({ completed: [0, 1], failed, totalBatches: 5 })
     const retried = pendingBatches(batches5, { ...cp, failed: [] })

@@ -56,6 +56,7 @@ export default function PlotModal({ refItem, onClose }: { refItem: Reference; on
   }, [data, q])
 
   const skCount = (data?.arcs ?? []).filter((a) => a.skeleton?.steps.length).length
+  const scope = data?.scope
 
   return (
     <div className="veil" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
@@ -94,6 +95,12 @@ export default function PlotModal({ refItem, onClose }: { refItem: Reference; on
             </div>
 
             <div className="modal-body em-body">
+              {scope?.partial && (
+                <div className="scope-warn" style={{ marginBottom: 4 }}>
+                  本次分析覆盖 <b>{scope.label}</b>（{scope.analyzed} / {scope.total} 章）。
+                  下面只包含这些章节里出现的情节拍 —— 不代表全书结构。
+                </div>
+              )}
               {tab === 'arcs' &&
                 arcs.map((a) => <ArcCard key={a.id} arc={a} byId={byId} />)}
 
