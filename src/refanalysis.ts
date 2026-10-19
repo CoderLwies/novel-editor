@@ -6,10 +6,10 @@
  * 会先跑阶段一作为体检——不值得深挖的书在这里就能看出来。
  */
 import type { AIConfig, Reference, RefStage } from './types'
-import type { RefStructure, RefElements, RefPlot, PlotArc, ScopeNote } from './refschema'
+import type { RefStructure, RefElements, RefPlot, PlotArc, PlotBeat, ScopeNote } from './refschema'
 import { computeStructure } from './refstats'
-import { readReferenceChapters, writeReferenceAnalysis, writeReferenceMeta, scanRawBatches, readRawManifest, writeRawManifest, readReferenceAnalysis } from './reference'
-import { fsLow } from './fs'
+import { readReferenceChapters, writeReferenceAnalysis, writeReferenceMeta, scanRawBatches, readRawManifest, writeRawManifest, readReferenceAnalysis, type RawManifest } from './reference'
+import { fsLow, pathExists } from './fs'
 import { planBatches, resolveScope, scopeChapterCount, scopeIsPartial, DEFAULT_QUEUE_CONFIG, SCOPE_ALL, type BatchTask, type AiStage, type QueueCheckpoint, type QueueConfig, type QueueProgress, type ScopeSpec, type ChapterScope } from './aiqueue'
 import { runQueue, type RunResult } from './aiqueue-runner'
 import { chatJSONWithUsage } from './ai'
@@ -63,7 +63,9 @@ export async function analyzeStructure(
 async function resolveRunScope(
   ref: Reference,
   spec: ScopeSpec | undefined,
+  explicit?: ChapterScope,
 ): Promise<{ scope: ChapterScope; structure: RefStructure | null }> {
+  if (explicit) return { scope: explicit, structure: null }
   const structure = await readReferenceAnalysis<RefStructure>(ref, 'structure')
   const total = ref.chapterCount || structure?.chapterCount || 0
   return {
@@ -76,9 +78,36 @@ export interface ExtractOptions {
   config?: Partial<QueueConfig>
   /** 分析档位；不传即全书 */
   scope?: ScopeSpec
+  /**
+   * 显式范围，优先于 scope。
+   * 「只重跑失败批次」必须沿用上次的批次划分，否则换了档位会把整本重跑一遍。
+   */
+  explicitScope?: ChapterScope
   ai: AIConfig
   onProgress?: (p: QueueProgress) => void
   signal?: AbortSignal
+}
+
+/**
+ * 磁盘上的缓存是否与本次运行对得上。
+ *
+ * raw 批次只按「阶段-序号」命名，序号本身不携带档位信息：
+ * 先按「每卷前 20 章」跑，再切到「全书」，第 0 批在两次运行里指向的章节完全不同。
+ * 只看序号就沿用缓存，会静默拼出错乱的产物 —— 这比没有数据更糟。
+ */
+export function cacheMatches(
+  manifest: RawManifest | null,
+  batchChapters: number,
+  chapterCount: number,
+  scope: ChapterScope,
+): boolean {
+  if (!manifest) return true
+  if (manifest.batchChapters !== batchChapters || manifest.chapterCount !== chapterCount) return false
+  // 旧缓存没有档位记录：只在本次就是全书时才认它
+  if (!manifest.scopeRanges) return !scopeIsPartial(scope)
+  const a = manifest.scopeRanges
+  const b = scope.ranges
+  return a.length === b.length && a.every((r, i) => r.from === b[i].from && r.to === b[i].to)
 }
 
 /**
@@ -93,27 +122,37 @@ export async function runElementExtraction(
 ): Promise<{ elements: RefElements; run: RunResult }> {
   const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG, ...opts.config }
   const chapters = await readReferenceChapters(ref)
-  const { scope } = await resolveRunScope(ref, opts.scope)
+  const { scope } = await resolveRunScope(ref, opts.scope, opts.explicitScope)
   const batches = planBatches(ref.id, 'elements', scope, config.batchChapters)
   if (!batches.length) throw new Error('没有可分析的章节')
 
   const marked: Reference = { ...ref, stage: 'reading' }
   await writeReferenceMeta(marked)
 
-  // 恢复断点：批大小一致才认，否则旧记录无意义
+  // 恢复断点：批大小一致才认，否则旧记录无意义；
+  // 同时校验档位 —— 换过分析范围的缓存必须作废，否则批次序号会指向别的章节
   const saved = await readCheckpoint(marked, 'elements')
-  const checkpoint = saved && saved.batchChapters === config.batchChapters ? saved : null
+  const reusable = cacheMatches(
+    await readRawManifest(marked, 'elements'),
+    config.batchChapters,
+    chapters.length,
+    scope,
+  )
+  const checkpoint = reusable && saved && saved.batchChapters === config.batchChapters ? saved : null
 
   // 合并器按批次序号重放，保证乱序完成也能得到一致结果
   const merger = new ElementsMerger()
   const outputs = new Map<number, BatchElements>()
 
-  // 先重放已完成的批次，累积出「已知名单」供新批次使用
-  for (const batch of batches) {
-    const raw = await readBatchOutput<BatchElements>(marked, 'elements', batch.index)
-    if (raw) {
-      outputs.set(batch.index, raw)
-      merger.add(raw, chaptersOf(chapters, batch).map((c) => c.index))
+  // 先重放已完成的批次，累积出「已知名单」供新批次使用。
+  // 缓存与本次档位对不上时一律不重放 —— 那批 raw 描述的是别的章节区间。
+  if (reusable) {
+    for (const batch of batches) {
+      const raw = await readBatchOutput<BatchElements>(marked, 'elements', batch.index)
+      if (raw) {
+        outputs.set(batch.index, raw)
+        merger.add(raw, chaptersOf(chapters, batch).map((c) => c.index))
+      }
     }
   }
 
@@ -145,8 +184,14 @@ export async function runElementExtraction(
     config,
     checkpoint,
     execute,
-    // raw 已落盘的批次视为完成：checkpoint 写失败也不会重复付费
-    persistedBatches: (await scanRawBatches(marked, 'elements', config.batchChapters)).map((b) => b.index),
+    // raw 已落盘的批次视为完成：checkpoint 写失败也不会重复付费。
+    // 只认当前划分里存在的序号 —— 换过档位后，旧档位超出的批次文件会留在目录里，
+    // 不过滤会让进度凭空超过 100%。
+    persistedBatches: reusable
+      ? (await scanRawBatches(marked, 'elements', config.batchChapters))
+          .map((b) => b.index)
+          .filter((i) => batches.some((b) => b.index === i))
+      : [],
     onCheckpoint: async (cp) => {
       await writeRawManifest(marked, {
         stage: 'elements',
@@ -196,7 +241,7 @@ export async function runPlotExtraction(
 ): Promise<{ plot: RefPlot; run: RunResult; arcError: string | null }> {
   const config: QueueConfig = { ...DEFAULT_QUEUE_CONFIG, ...opts.config }
   const chapters = await readReferenceChapters(ref)
-  const { scope } = await resolveRunScope(ref, opts.scope)
+  const { scope } = await resolveRunScope(ref, opts.scope, opts.explicitScope)
   const scopeNote: ScopeNote = {
     label: scope.label,
     analyzed: scopeChapterCount(scope),
@@ -210,14 +255,22 @@ export async function runPlotExtraction(
   await writeReferenceMeta(marked)
 
   const saved = await readCheckpoint(marked, 'plot')
-  const checkpoint = saved && saved.batchChapters === config.batchChapters ? saved : null
+  const reusable = cacheMatches(
+    await readRawManifest(marked, 'plot'),
+    config.batchChapters,
+    chapters.length,
+    scope,
+  )
+  const checkpoint = reusable && saved && saved.batchChapters === config.batchChapters ? saved : null
 
   const collector = new BeatCollector()
 
-  // 重放已完成的批次，恢复出有序拍列表
-  for (const batch of batches) {
-    const raw = await readBatchOutput<BatchPlot>(marked, 'plot', batch.index)
-    if (raw) collector.add(raw, batch.fromChapter, batch.toChapter)
+  // 重放已完成的批次，恢复出有序拍列表（档位对不上时不能重放）
+  if (reusable) {
+    for (const batch of batches) {
+      const raw = await readBatchOutput<BatchPlot>(marked, 'plot', batch.index)
+      if (raw) collector.add(raw, batch.fromChapter, batch.toChapter)
+    }
   }
 
   const execute = async (batch: BatchTask) => {
@@ -241,8 +294,13 @@ export async function runPlotExtraction(
     config,
     checkpoint,
     execute,
-    // raw 已落盘的批次视为完成：checkpoint 写失败也不会重复付费
-    persistedBatches: (await scanRawBatches(marked, 'plot', config.batchChapters)).map((b) => b.index),
+    // raw 已落盘的批次视为完成：checkpoint 写失败也不会重复付费。
+    // 只认当前划分里存在的序号（理由同 elements）
+    persistedBatches: reusable
+      ? (await scanRawBatches(marked, 'plot', config.batchChapters))
+          .map((b) => b.index)
+          .filter((i) => batches.some((b) => b.index === i))
+      : [],
     // 记录批次覆盖的章区间，重建时据此校验拆分章规则是否变过
     onCheckpoint: async (cp) => {
       await writeRawManifest(marked, {
@@ -327,8 +385,11 @@ async function writeBatchOutput(ref: Reference, stage: AiStage, i: number, data:
 }
 
 async function readBatchOutput<T>(ref: Reference, stage: AiStage, i: number): Promise<T | null> {
+  const p = batchFile(ref, stage, i)
+  // 缺批次文件是常态（还没跑过 / 该批失败），不要让它变成 IPC 异常日志
+  if (!(await pathExists(p))) return null
   try {
-    return JSON.parse(await fsLow.readFile(batchFile(ref, stage, i))) as T
+    return JSON.parse(await fsLow.readFile(p)) as T
   } catch {
     return null
   }
@@ -338,9 +399,13 @@ async function writeCheckpoint(ref: Reference, stage: AiStage, cp: QueueCheckpoi
   await fsLow.writeFile(checkpointFile(ref, stage), JSON.stringify(cp, null, 2))
 }
 
-async function readCheckpoint(ref: Reference, stage: AiStage): Promise<QueueCheckpoint | null> {
+/** 读断点。UI 也要用它显示「已完成 X/Y 批、失败 N 批」，所以对外导出 */
+export async function readCheckpoint(ref: Reference, stage: AiStage): Promise<QueueCheckpoint | null> {
+  const p = checkpointFile(ref, stage)
+  // 首次运行没有断点是正常状态：先判存在，避免 IPC 层抛 ENOENT
+  if (!(await pathExists(p))) return null
   try {
-    return JSON.parse(await fsLow.readFile(checkpointFile(ref, stage))) as QueueCheckpoint
+    return JSON.parse(await fsLow.readFile(p)) as QueueCheckpoint
   } catch {
     return null
   }
@@ -362,6 +427,35 @@ export async function readPlotUsage(ref: Reference): Promise<PlotUsage | null> {
     outputTokens: cp.outputTokens,
     batches: cp.totalBatches,
   }
+}
+
+/**
+ * 重建时把原来的叙事线与骨架接回新产物。
+ *
+ * beat 的 id 每次重建都会重新生成，所以不能照搬 arc.beatIds；
+ * 但 raw 相同 = 拍的数量与顺序相同，按位置重映射即可。
+ * 一旦拍数对不上（缓存被动过、拆章变了），宁可不接 —— 错位的骨架比没有更糟。
+ */
+export function remapArcs(oldPlot: RefPlot | null, beats: PlotBeat[]): PlotArc[] {
+  if (!oldPlot?.arcs?.length || !beats.length) return []
+  const oldBeats = oldPlot.beats ?? []
+  if (oldBeats.length !== beats.length) return []
+  const posOf = new Map(oldBeats.map((b, i) => [b.id, i]))
+  const out: PlotArc[] = []
+  for (const arc of oldPlot.arcs) {
+    const idxs = arc.beatIds
+      .map((id) => posOf.get(id))
+      .filter((i): i is number => typeof i === 'number')
+      .sort((a, b) => a - b)
+    if (!idxs.length) continue
+    out.push({
+      ...arc,
+      beatIds: idxs.map((i) => beats[i].id),
+      fromChapter: beats[idxs[0]].fromChapter,
+      toChapter: beats[idxs[idxs.length - 1]].toChapter,
+    })
+  }
+  return out
 }
 
 /**
@@ -415,10 +509,24 @@ export async function rebuildFromRaw(
   }
   if (!collector.length) return { ok: false, reason: '缓存内容无法解析，重建失败' }
 
+  const scopeNote: ScopeNote = {
+    label: scope.label,
+    analyzed: scopeChapterCount(scope),
+    total: scope.totalChapters,
+    partial: scopeIsPartial(scope),
+  }
+
   if (stage === 'plot') {
     const beats = collector.finish(ref.id)
+    const old = await readReferenceAnalysis<RefPlot>(ref, 'plot')
     const plot: RefPlot = {
-      schemaVersion: SCHEMA_VERSION, refId: ref.id, computedAt: Date.now(), beats, arcs: [],
+      schemaVersion: SCHEMA_VERSION,
+      refId: ref.id,
+      computedAt: Date.now(),
+      scope: scopeNote,
+      beats,
+      // 骨架是全书唯一一次调用产出的，重建时没有模型可问 —— 只能把旧的接回来
+      arcs: remapArcs(old, beats),
     }
     await writeReferenceAnalysis(ref, 'plot', plot)
   } else {
@@ -429,7 +537,11 @@ export async function rebuildFromRaw(
     }
     const merged = merger.finish(ref.id)
     await writeReferenceAnalysis(ref, 'elements', {
-      schemaVersion: SCHEMA_VERSION, refId: ref.id, computedAt: Date.now(), ...merged,
+      schemaVersion: SCHEMA_VERSION,
+      refId: ref.id,
+      computedAt: Date.now(),
+      scope: scopeNote,
+      ...merged,
     })
   }
   await writeReferenceMeta({ ...ref, stage: ref.stage === 'idle' ? 'scanned' : ref.stage })

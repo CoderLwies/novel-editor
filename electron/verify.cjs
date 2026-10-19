@@ -66,6 +66,39 @@ function startFakeAi() {
           }
         } else if (body.includes('归纳该设定')) {
           payload = { desc: 'AI设定描述E2E', status: 'AI状态E2E' }
+        } else if (body.includes('归纳本批出现的人物')) {
+          // 参考库要素抽取：名称与别名必须能被跨批合并识别
+          payload = {
+            characters: [
+              { name: '林渊', aliases: ['小林'], role: '主角', appearance: '身形清瘦', personality: '隐忍',
+                background: '青云镇林家', motivation: '为父报仇', ability: '剑骨', speech: '' },
+            ],
+            settings: [
+              { category: 'faction', name: '镇北司', desc: '挂靠兵部', status: '活跃', subtype: 'sect' },
+            ],
+            foreshadows: [
+              { title: '身世之谜', detail: '母亲留下的玉佩来历不明', plant: true, payoff: false },
+            ],
+          }
+        } else if (body.includes('判定本批的情节拍')) {
+          payload = {
+            beats: [
+              { fromChapter: 1, toChapter: 2, kind: 'setup', title: '废柴开局', summary: '建立处境',
+                signal: '当众被贬，无人出面维护', cost: '处境要足够惨', characters: ['林渊'], continuesFromPrev: false },
+              { fromChapter: 3, toChapter: 3, kind: 'conflict', title: '第一次冲突', summary: '正面冲突',
+                signal: '被当众羞辱后孤立无援', cost: '不能全身而退', characters: ['林渊'], continuesFromPrev: false },
+            ],
+          }
+        } else if (body.includes('组织成叙事线')) {
+          payload = {
+            arcs: [{
+              title: '身份反转线', beatIndexes: [0, 1],
+              skeleton: {
+                steps: [{ key: 'a', label: '受辱', require: '要有当众羞辱场面' }, { key: 'b', label: '反打', require: '必须付出代价' }],
+                suggestedSpan: 20,
+              },
+            }],
+          }
         } else {
           payload = { ok: true }
         }
@@ -877,7 +910,6 @@ async function main() {
   await js(`[...document.querySelectorAll('.modal-foot .btn')].find(b=>b.textContent.includes('填入空缺'))?.click()`)
   await sleep(500)
   const setStatus = await js(`JSON.parse(localStorage.getItem('zizhou-state-v1')).settings.find(s=>s.name==='青云镇')?.status`)
-  aiSrv4.close()
   console.log('E2E setting ai -> gen items:', genItems, '| created:', genCreated, '| card status filled:', setStatus)
 
   // 21) 参考库：真实导入路径 → 结构统计 → 成本确认弹窗
@@ -950,6 +982,41 @@ async function main() {
   await sleep(400)
   const cardBtns = await js(`[...document.querySelectorAll('.ref-card .btn')].map(b=>b.textContent.trim()).join(' | ')`)
   console.log('E2E reference card buttons ->', cardBtns)
+
+  // 真跑一次要素抽取：结束时 run 必须清空 —— 按钮要回来、进度条要消失、结果要可见。
+  // 早先 finally 里保留了 run，导致「运行中」永远为真，三个区块互相锁死。
+  await js(`[...document.querySelectorAll('.ref-card .btn')].find(b=>b.textContent.includes('要素抽取'))?.click()`)
+  await sleep(700)
+  await js(`[...document.querySelectorAll('.veil .modal-foot .btn')].find(b=>b.textContent.includes('拆解'))?.click()`)
+  await sleep(4500)
+  const afterExtract = await js(`(() => {
+    const c = document.querySelector('.ref-card')
+    return {
+      btns: [...c.querySelectorAll('.btn')].map(b=>b.textContent.trim()).join(' | '),
+      progressStuck: !!c.querySelector('.pbar'),
+      kpis: [...c.querySelectorAll('.rcr-kpi')].map(b=>b.textContent.replace(/\\s+/g,'')).join(' '),
+      ring: c.querySelector('.ref-ring')?.textContent ?? '',
+    }
+  })()`)
+  console.log('E2E after extraction ->', JSON.stringify(afterExtract))
+
+  // 情节链同理；这次还带骨架生成
+  await js(`[...document.querySelectorAll('.ref-card .btn')].find(b=>b.textContent.includes('情节链拆解'))?.click()`)
+  await sleep(700)
+  await js(`[...document.querySelectorAll('.veil .modal-foot .btn')].find(b=>b.textContent.includes('拆解'))?.click()`)
+  await sleep(5000)
+  const afterPlot = await js(`(() => {
+    const c = document.querySelector('.ref-card')
+    return {
+      btns: [...c.querySelectorAll('.btn')].map(b=>b.textContent.trim()).join(' | '),
+      progressStuck: !!c.querySelector('.pbar'),
+      kpis: [...c.querySelectorAll('.rcr-kpi')].map(b=>b.textContent.replace(/\\s+/g,'')).join(' '),
+    }
+  })()`)
+  console.log('E2E after plot ->', JSON.stringify(afterPlot))
+  await shot('22-ref-after-run.png')
+  // 参考库两次真实拆解都用上面的假服务，到这里才能关
+  aiSrv4.close()
 
   // 22) 写作流内的参考面板：入口可开、提示语正确（不做真实定位，那要花 token）
   await js(`document.querySelector('button[title="返回书架"]')?.click()`)

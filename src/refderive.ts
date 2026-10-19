@@ -110,14 +110,14 @@ export function coverChecklist(
 export function groupBySubtype(
   elementsByRef: { refId: ID; refTitle: string; elements: RefElements }[],
   category: SettingCategory,
-): { subtype: string; items: { name: string; desc: string; status: string; refTitle: string }[] }[] {
-  const map = new Map<string, { name: string; desc: string; status: string; refTitle: string }[]>()
-  for (const { refTitle, elements } of elementsByRef) {
+): { subtype: string; items: { name: string; desc: string; status: string; refTitle: string; refId: ID }[] }[] {
+  const map = new Map<string, { name: string; desc: string; status: string; refTitle: string; refId: ID }[]>()
+  for (const { refId, refTitle, elements } of elementsByRef) {
     for (const s of elements.settings ?? []) {
       if (s.category !== category) continue
       const key = s.subtype?.trim() || '未分类'
       const list = map.get(key) ?? []
-      list.push({ name: s.name, desc: s.desc, status: s.status, refTitle })
+      list.push({ name: s.name, desc: s.desc, status: s.status, refTitle, refId })
       map.set(key, list)
     }
   }

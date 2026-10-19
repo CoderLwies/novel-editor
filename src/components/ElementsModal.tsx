@@ -106,6 +106,13 @@ export default function ElementsModal({ refItem, onClose }: { refItem: Reference
             </div>
 
             <div className="modal-body em-body">
+              {/* 分档跑时产物只覆盖部分章节，不标注就会被当成全书结论 */}
+              {data.scope?.partial && (
+                <div className="scope-warn" style={{ marginBottom: 4 }}>
+                  本次分析只覆盖 <b>{data.scope.label}</b>（{data.scope.analyzed} / {data.scope.total} 章），
+                  下面的角色、设定与伏笔仅来自这些章节，不代表全书。
+                </div>
+              )}
               {tab === 'characters' && (
                 <>
                   {!filtered.characters.length && <div className="note">{q ? '没有匹配的角色' : '未抽到角色'}</div>}

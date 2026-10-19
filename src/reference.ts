@@ -12,7 +12,7 @@
 import type { ID, RefVolume, Reference } from './types'
 import { countWords } from './utils'
 import { sanitizeFilename } from './project'
-import { fsLow } from './fs'
+import { fsLow, pathExists } from './fs'
 
 export const REFERENCE_FORMAT = 'zizhou-reference'
 export const REFERENCE_VERSION = 1
@@ -223,7 +223,7 @@ export async function isReferenceDir(dir: string): Promise<boolean> {
 }
 
 export async function readReferenceMeta(dir: string): Promise<Reference | null> {
-  if (!(await fsLow.exists(`${dir}/reference.json`))) return null
+  if (!(await pathExists(`${dir}/reference.json`))) return null
   try {
     const raw = await fsLow.readFile(`${dir}/reference.json`)
     const d = JSON.parse(raw)
@@ -237,6 +237,7 @@ export async function readReferenceMeta(dir: string): Promise<Reference | null> 
 /** 读回拆好的原文（P1 分析与报告回读用） */
 export async function readReferenceChapters(ref: Reference): Promise<RefChapter[]> {
   let entries: FsDirEntry[]
+  if (!(await pathExists(`${ref.dir}/chapters`))) return []
   try {
     entries = await fsLow.readdir(`${ref.dir}/chapters`)
   } catch {
@@ -294,7 +295,7 @@ export async function readReferenceAnalysis<T>(
   name: keyof typeof ANALYSIS_FILES,
 ): Promise<T | null> {
   const p = `${ref.dir}/analysis/${ANALYSIS_FILES[name]}`
-  if (!(await fsLow.exists(p))) return null
+  if (!(await pathExists(p))) return null
   try {
     return JSON.parse(await fsLow.readFile(p)) as T
   } catch {
@@ -335,8 +336,11 @@ export async function writeRawManifest(
 }
 
 export async function readRawManifest(ref: Reference, stage: string): Promise<RawManifest | null> {
+  const p = manifestFile(ref, stage)
+  // 先判存在：直接 read 一个不存在的文件会在 IPC 层抛异常并刷错误日志
+  if (!(await pathExists(p))) return null
   try {
-    return JSON.parse(await fsLow.readFile(manifestFile(ref, stage))) as RawManifest
+    return JSON.parse(await fsLow.readFile(p)) as RawManifest
   } catch {
     return null
   }
@@ -357,6 +361,7 @@ export async function scanRawBatches(
   // raw 目录只在第一次批次落盘后才存在。新书（从未跑过分析）读它会 ENOENT，
   // 那是正常状态而不是错误 —— 返回空即可，绝不能让整个分析流程崩在这里。
   let entries: FsDirEntry[]
+  if (!(await pathExists(`${ref.dir}/analysis/raw`))) return []
   try {
     entries = await fsLow.readdir(`${ref.dir}/analysis/raw`)
   } catch {

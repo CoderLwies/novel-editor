@@ -6,7 +6,7 @@ import {
   buildTemplates,
   markCrossBook,
   buildComparison,
-  bestOf,
+  extremesOf,
   diffSummary,
   COMPARE_DIMS,
   type RefAnalysisBundle,
@@ -185,20 +185,19 @@ describe('竞品对比', () => {
 
   it('标注了哪些维度是弱信号', () => {
     expect(COMPARE_DIMS.filter((d) => d.weak).map((d) => d.key)).toContain('tension')
-    expect(COMPARE_DIMS.filter((d) => d.weak).every((d) => !d.better)).toBe(true)
   })
 
-  it('当前没有「越大越好」的维度，故不标最优', () => {
+  it('不给维度贴「最优」标签，只标极值两端', () => {
     // 章节数多只是连载长，不代表更好；标「最优」会误导作者去追一个中性指标
-    expect(COMPARE_DIMS.every((d) => !d.better)).toBe(true)
-    for (const d of COMPARE_DIMS) expect(bestOf(cols, d)).toEqual([])
+    for (const d of COMPARE_DIMS) expect(() => extremesOf(cols, d)).not.toThrow()
   })
 
-  it('bestOf 在有方向且多列时仍能正确选出', () => {
-    const dim = { ...COMPARE_DIMS.find((d) => d.key === 'chapters')!, better: 'high' as const }
-    expect(bestOf(cols, dim)).toEqual(['r2'])
-    expect(bestOf([cols[0]], dim)).toEqual([]) // 单列不比较
-    expect(bestOf(cols, { ...dim, better: 'low' })).toEqual(['r1'])
+  it('extremesOf 选出最高与最低，单列与全相同不标', () => {
+    const dim = COMPARE_DIMS.find((d) => d.key === 'chapters')!
+    expect(extremesOf(cols, dim)).toEqual({ max: ['r2'], min: ['r1'] })
+    expect(extremesOf([cols[0]], dim)).toEqual({ max: [], min: [] }) // 单列不比较
+    const same = cols.map((c) => ({ ...c, values: { ...c.values, chapters: 10 } }))
+    expect(extremesOf(same, dim)).toEqual({ max: [], min: [] })
   })
 
   it('diffSummary 只含非弱信号维度且可读', () => {

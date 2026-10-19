@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, FileInput, FolderInput, Trash2, BookMarked, Square, RotateCcw } from 'lucide-react'
+import { ArrowLeft, FileInput, FolderInput, FolderPlus, Trash2, BookMarked, Square, RotateCcw } from 'lucide-react'
 import { useStore, actions } from '../store'
 import type { Reference, RefStage } from '../types'
 import { formatNumber } from '../utils'
@@ -9,18 +9,22 @@ import {
   pickChapterFiles,
   writeReferenceToDir,
   describeImport,
+  readReferenceMeta,
+  scanRawBatches,
+  readRawManifest,
   type SplitResult,
   type RefChapter,
 } from '../reference'
+import { readCheckpoint } from '../refanalysis'
 import { uid } from '../utils'
-import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, AI_STAGE_LABEL, OUTPUT_TOKENS_PER_BATCH, resolveScope, scopeChapterCount, SCOPE_ALL, SCOPE_HEAD, SCOPE_PER_VOLUME, type QueueProgress, type AiStage, type ScopeSpec } from '../aiqueue'
+import { estimateCost, DEFAULT_QUEUE_CONFIG, isPeakHour, progressRatio, AI_STAGE_LABEL, OUTPUT_TOKENS_PER_BATCH, resolveScope, scopeChapterCount, SCOPE_ALL, SCOPE_HEAD, SCOPE_PER_VOLUME, type QueueProgress, type AiStage, type ScopeSpec, type QueueCheckpoint, type ChapterScope } from '../aiqueue'
 import type { RefElements, RefPlot } from '../refschema'
 import { aiReady } from '../ai'
 import { readReferenceAnalysis } from '../reference'
 import type { RefTemplate, TemplateKind, RefStructure } from '../refschema'
 import { TEMPLATE_KIND_LABEL } from '../refschema'
 import type { ChecklistItem } from '../refderive'
-import { buildTemplates, buildComparison, COMPARE_DIMS, bestOf, diffSummary, type RefAnalysisBundle } from '../reftemplates'
+import { buildTemplates, buildComparison, COMPARE_DIMS, extremesOf, diffSummary, type RefAnalysisBundle } from '../reftemplates'
 import ElementsModal from './ElementsModal'
 import PlotModal from './PlotModal'
 
@@ -32,19 +36,35 @@ interface PendingImport {
   chapters: RefChapter[]
 }
 
-/** 一次深度拆解的界面状态 */
+/** 正在进行的一次深度拆解。跑完即清空 —— 卡片状态必须回到可操作。 */
 interface RunState {
   refId: string
   /** 区分要素抽取与情节链，两者可分别跑 */
   stage: AiStage
   progress: QueueProgress | null
   abort: AbortController
-  /** 完成后展示的结果 */
-  result: RefElements | null
-  plot: RefPlot | null
-  failedBatches: number
-  pausedByBudget: boolean
 }
+
+/**
+ * 磁盘上的断点摘要。
+ * 失败批次与「已完成 X/Y 批」都必须从磁盘读 —— 只放内存的话，
+ * 关掉应用再打开就看不见上次失败的批次，用户会以为结果完整。
+ */
+interface CpInfo {
+  completed: number
+  total: number
+  failed: number
+  status: QueueCheckpoint['status']
+  batchChapters: number
+  /** raw/ 里实际落盘的批次数，是「能不能重建」的真相来源 */
+  cached: number
+  /** 断点对应的分析档位；与当前选择不一致时不能假装还能续跑 */
+  scopeLabel?: string
+  /** 断点的章区间与全书章数：重跑失败批次时据此复用同一套批次划分 */
+  scopeRanges?: { from: number; to: number }[]
+  chapterCount?: number
+}
+type CpMap = Record<string, Partial<Record<AiStage, CpInfo>>>
 
 const STAGE_META: Record<RefStage, { label: string; cls: string }> = {
   idle: { label: '待分析', cls: 'ring-todo' },
@@ -56,6 +76,11 @@ const STAGE_META: Record<RefStage, { label: string; cls: string }> = {
 
 function basename(p: string): string {
   return p.replace(/\\/g, '/').split('/').pop() ?? p
+}
+
+/** 全部批次都因鉴权失败时，提示必须指向真正的原因，而不是「N 批失败」 */
+function authHint(cp: QueueCheckpoint): string {
+  return cp.failed.some((f) => f.kind === 'auth') ? '（鉴权失败：API Key 无效或未填，请检查顶栏「AI 接口设置」）' : ''
 }
 
 export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
@@ -74,16 +99,22 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
   const [view, setView] = useState<'books' | 'templates' | 'compare'>('books')
   const [bundles, setBundles] = useState<RefAnalysisBundle[]>([])
   const [templates, setTemplates] = useState<RefTemplate[]>([])
+  const [cps, setCps] = useState<CpMap>({})
   const [insight, setInsight] = useState<string[] | null>(null)
   /** 打开要素详情的参考书；分析产物在磁盘上，任何时候都能回看 */
   const [elementsRef, setElementsRef] = useState<Reference | null>(null)
   const [plotRef, setPlotRef] = useState<Reference | null>(null)
   const [rebuildingId, setRebuildingId] = useState<string | null>(null)
+  /** 本次运行的费用上限；null = 不限。跑超了会暂停，调高再点一次即可续跑 */
+  const [budget, setBudget] = useState<number | null>(DEFAULT_QUEUE_CONFIG.budgetYuan)
+  /** 目录导入的读取进度；上千章时逐个数却没有反馈会像卡死 */
+  const [importing, setImporting] = useState<{ done: number; total: number } | null>(null)
 
   // 各书的分析产物汇总；模板与对比全部由此**本地推导**，不再调用模型。
   // 抽成函数是为了跑完抽取后能立即重载 —— 否则卡片看不到刚跑出来的结果。
   const loadBundles = useCallback(async () => {
     const out: RefAnalysisBundle[] = []
+    const nextCps: CpMap = {}
     for (const r of state.references) {
       const structure = await readReferenceAnalysis<RefStructure>(r, 'structure')
       const plot = await readReferenceAnalysis<RefPlot>(r, 'plot')
@@ -98,9 +129,35 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
         }
       }
       if (structure || plot || elements) out.push({ ref: r, structure, plot, elements, checklists })
+
+      // 断点 + 已落盘批次：卡片要用它显示失败批次与「能否重建」
+      const per: Partial<Record<AiStage, CpInfo>> = {}
+      for (const stage of ['elements', 'plot'] as AiStage[]) {
+        const cp = await readCheckpoint(r, stage)
+        const manifest = await readRawManifest(r, stage)
+        const cached = (await scanRawBatches(r, stage, DEFAULT_QUEUE_CONFIG.batchChapters)).length
+        if (cp) {
+          per[stage] = {
+            completed: cp.completed.length,
+            total: cp.totalBatches,
+            failed: cp.failed.length,
+            status: cp.status,
+            batchChapters: cp.batchChapters,
+            cached,
+            scopeLabel: manifest?.scopeLabel,
+            scopeRanges: manifest?.scopeRanges,
+            chapterCount: manifest?.chapterCount,
+          }
+        } else if (cached) {
+          // checkpoint 写失败但 raw 在：仍然算有缓存，只是不知道进度
+          per[stage] = { completed: 0, total: 0, failed: 0, status: 'paused', batchChapters: DEFAULT_QUEUE_CONFIG.batchChapters, cached, scopeLabel: manifest?.scopeLabel, scopeRanges: manifest?.scopeRanges, chapterCount: manifest?.chapterCount }
+        }
+      }
+      if (Object.keys(per).length) nextCps[r.id] = per
     }
     setBundles(out)
     setTemplates(buildTemplates(out))
+    setCps(nextCps)
   }, [state.references])
 
   useEffect(() => {
@@ -162,18 +219,29 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
         flash('该目录下没有 .txt / .md 正文文件')
         return
       }
-      const chapters: RefChapter[] = []
+      const chapters: RefChapter[] = new Array(names.length)
       const encodings = new Set<string>()
-      for (let i = 0; i < names.length; i++) {
-        const { text, encoding } = await readTextFile(`${dir}/${names[i]}`)
-        encodings.add(encoding)
-        chapters.push({
-          index: i + 1,
-          title: names[i].replace(/\.(txt|md|markdown)$/i, ''),
-          content: text,
-          volumeIndex: 0,
-        })
+      setImporting({ done: 0, total: names.length })
+      let done = 0
+      let cursor = 0
+      // 逐个数读一千章会长时间没有任何反馈；小并发既快又不会打爆 IPC
+      const worker = async () => {
+        while (true) {
+          const i = cursor++
+          if (i >= names.length) return
+          const { text, encoding } = await readTextFile(`${dir}/${names[i]}`)
+          encodings.add(encoding)
+          chapters[i] = {
+            index: i + 1,
+            title: names[i].replace(/\.(txt|md|markdown)$/i, ''),
+            content: text,
+            volumeIndex: 0,
+          }
+          done += 1
+          setImporting({ done, total: names.length })
+        }
       }
+      await Promise.all(Array.from({ length: Math.min(12, names.length) }, worker))
       // 每章一个文件即视为单卷；卷划分留给分析阶段推断
       const split: SplitResult = { volumes: [{ title: basename(dir), chapterCount: chapters.length }], chapters }
       setPending({
@@ -185,6 +253,36 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
       setTargetDir('')
     } catch (e) {
       flash(`导入失败：${(e as Error).message}`)
+    } finally {
+      setImporting(null)
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 重新接入一个已有参考目录。
+   * 移出参考库只删本地元数据、不动磁盘；没有这个入口的话，
+   * 误删一次就得整本书重新导入（还会重写一遍章节文件）。
+   */
+  async function attachExistingDir() {
+    setBusy(true)
+    try {
+      const dir = await pickDirectory()
+      if (!dir) return
+      const meta = await readReferenceMeta(dir)
+      if (!meta) {
+        flash('这个目录里没有 reference.json，不是字舟的参考目录')
+        return
+      }
+      if (refs.some((r) => r.dir === dir)) {
+        flash('这个目录已经在参考库里了')
+        return
+      }
+      actions.addReference(meta)
+      void loadBundles()
+      flash(`已重新接入《${meta.title}》：${meta.chapterCount} 章，原有分析产物可直接查看`)
+    } catch (e) {
+      flash(`接入失败：${(e as Error).message}`)
     } finally {
       setBusy(false)
     }
@@ -246,42 +344,66 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
     }
   }
 
-  const shown = filter === 'all' ? refs : refs.filter((r) => r.stage === filter)
+  /** 阶段过滤只有一个口径 —— 计数与列表用同一个函数，避免「显示 3 本、列表是空」 */
+  const matchesFilter = (r: Reference, f: typeof filter) =>
+    f === 'all'
+      ? true
+      : f === 'idle'
+        ? r.stage === 'idle'
+        : f === 'scanned'
+          ? r.stage === 'scanned' || r.stage === 'done'
+          : r.stage === 'scanning' || r.stage === 'reading'
+
+  const shown = refs.filter((r) => matchesFilter(r, filter))
 
   /* ------------------------- 阶段二：深度拆解 ------------------------- */
 
-  async function startExtraction(ref: Reference, stage: AiStage, retryFailed = false) {
+  async function startExtraction(ref: Reference, stage: AiStage, retryFailed = false, explicitScope?: ChapterScope) {
     const abort = new AbortController()
     const spec = scopeSpec
     setConfirmRef(null)
-    setRun({ refId: ref.id, stage, progress: null, abort, result: null, plot: null, failedBatches: 0, pausedByBudget: false })
-    const onProgress = (p: QueueProgress) => setRun((prev) => (prev ? { ...prev, progress: p } : prev))
+    setRun({ refId: ref.id, stage, progress: null, abort })
+    const onProgress = (p: QueueProgress) =>
+      setRun((prev) => (prev && prev.refId === ref.id ? { ...prev, progress: p } : prev))
     try {
       if (stage === 'elements') {
-        const { elements, run: r } = await actions.extractElements(ref.id, { signal: abort.signal, retryFailed, onProgress, scope: spec })
-        await loadBundles() // 产物刚写盘，重载后卡片与要素详情才拿得到
-        setRun((prev) => (prev ? { ...prev, result: elements, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
+        const { elements, run: r } = await actions.extractElements(ref.id, {
+          signal: abort.signal,
+          retryFailed,
+          onProgress,
+          // 重跑失败批次时沿用上次的批次划分，绝不能让当前档位把范围改掉
+          scope: explicitScope ? undefined : spec,
+          explicitScope,
+          config: { budgetYuan: budget },
+        })
         const c = elements.characters.length
         const s = elements.settings.length
         const f = elements.foreshadows.length
         flash(
           r.pausedByBudget
-            ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；加预算后可继续`
+            ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；到成本弹窗调高预算后可继续`
             : `要素抽取完成：角色 ${c} · 设定 ${s} · 伏笔 ${f}` +
-              (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
+                (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : '') +
+                authHint(r.checkpoint),
         )
       } else {
-        const { plot, run: r, arcError } = await actions.extractPlot(ref.id, { signal: abort.signal, retryFailed, onProgress, scope: spec })
-        await loadBundles() // 产物刚写盘，重载后模板库与卷纲面板才拿得到
-        setRun((prev) => (prev ? { ...prev, plot, failedBatches: r.checkpoint.failed.length, pausedByBudget: r.pausedByBudget } : prev))
+        const { plot, run: r, arcError } = await actions.extractPlot(ref.id, {
+          signal: abort.signal,
+          retryFailed,
+          onProgress,
+          scope: explicitScope ? undefined : spec,
+          explicitScope,
+          config: { budgetYuan: budget },
+        })
         const sk = plot.arcs.filter((a) => a.skeleton).length
         flash(
           arcError
             ? `情节拍已保存（${plot.beats.length} 拍），但骨架生成失败：${arcError}。重新点一次「情节链拆解」只会重跑这一步，不重跑已完成的批次。`
             : r.pausedByBudget
-              ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；加预算后可继续`
+              ? `预算已用尽，暂停在 ${r.checkpoint.completed.length}/${r.checkpoint.totalBatches} 批；到成本弹窗调高预算后可继续`
               : `情节链完成：${plot.beats.length} 拍 · ${plot.arcs.length} 条线（其中 ${sk} 条抽出骨架）` +
-                (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : ''),
+                (r.checkpoint.failed.length ? `（${r.checkpoint.failed.length} 批失败，结果有缺口）` : '') +
+                authHint(r.checkpoint),
         )
       }
     } catch (e) {
@@ -290,7 +412,11 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
       if (abort.signal.aborted) flash('已中断，进度已保存，可随时继续')
       else flash(`拆解失败：${msg}`)
     } finally {
-      setRun((prev) => (prev && prev.progress ? prev : null))
+      // 必须在结束时清空：留着 run 会让「运行中」永远为真，
+      // 结果区与操作按钮全部被隐藏，只能退出参考库再进来
+      setRun(null)
+      // 无论成功失败都重载：产物与断点可能都已写盘
+      await loadBundles()
     }
   }
 
@@ -300,9 +426,9 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
 
   const counts = {
     all: refs.length,
-    idle: refs.filter((r) => r.stage === 'idle').length,
-    scanned: refs.filter((r) => r.stage === 'scanned' || r.stage === 'done').length,
-    running: refs.filter((r) => r.stage === 'scanning' || r.stage === 'reading').length,
+    idle: refs.filter((r) => matchesFilter(r, 'idle')).length,
+    scanned: refs.filter((r) => matchesFilter(r, 'scanned')).length,
+    running: refs.filter((r) => matchesFilter(r, 'scanning')).length,
   }
 
   return (
@@ -325,9 +451,14 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
           <FileInput size={15} /> 导入 TXT / MD
         </button>
         {supportsProjectFolders && (
-          <button className="btn btn-primary btn-sm" disabled={busy} onClick={importDir}>
-            <FolderInput size={15} /> 导入整本书目录
-          </button>
+          <>
+            <button className="btn btn-primary btn-sm" disabled={busy} onClick={importDir}>
+              <FolderInput size={15} /> {importing ? `读取中 ${importing.done}/${importing.total}` : '导入整本书目录'}
+            </button>
+            <button className="btn btn-ghost btn-sm" disabled={busy} onClick={attachExistingDir} title="重新接入之前导入过的参考目录（分析产物可继续用）">
+              <FolderPlus size={15} /> 接入已有目录
+            </button>
+          </>
         )}
       </div>
 
@@ -365,7 +496,10 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
                 <div style={{ display: 'flex', gap: 9, marginTop: 6 }}>
                   <button className="btn btn-ghost btn-sm" disabled={busy} onClick={importFile}>导入 TXT / MD</button>
                   {supportsProjectFolders && (
-                    <button className="btn btn-primary btn-sm" disabled={busy} onClick={importDir}>导入整本书目录</button>
+                    <>
+                      <button className="btn btn-primary btn-sm" disabled={busy} onClick={importDir}>导入整本书目录</button>
+                      <button className="btn btn-ghost btn-sm" disabled={busy} onClick={attachExistingDir}>接入已有目录</button>
+                    </>
                   )}
                 </div>
               )}
@@ -380,21 +514,29 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
                   analyzing={analyzingId === r.id}
                   onExtract={() => setConfirmRef({ ref: r, stage: 'elements' })}
                   onExtractPlot={() => setConfirmRef({ ref: r, stage: 'plot' })}
-                  extracting={run?.refId === r.id && !!run.progress}
                   running={run?.refId === r.id}
                   onStop={stopRun}
                   progress={run?.refId === r.id ? run.progress : null}
-                  result={run?.refId === r.id ? run.result : null}
-                  plot={run?.refId === r.id ? run.plot : null}
-                  failedBatches={run?.refId === r.id ? run.failedBatches : 0}
-                  onRetryFailed={() => startExtraction(r, run?.stage ?? 'elements', true)}
+                  cp={cps[r.id] ?? {}}
+                  onRetryFailed={(stage) => {
+                    const info = cps[r.id]?.[stage]
+                    // 沿用断点记录的范围与批次划分，只把失败的那些重新入队
+                    const explicit: ChapterScope | undefined = info?.scopeRanges?.length
+                      ? {
+                          label: info.scopeLabel ?? '（断点范围）',
+                          ranges: info.scopeRanges,
+                          totalChapters: info.chapterCount ?? r.chapterCount,
+                        }
+                      : undefined
+                    void startExtraction(r, stage, true, explicit)
+                  }}
                   rebuilding={rebuildingId}
                   onRebuild={rebuild}
                   elements={bundleOf(r.id)?.elements ?? null}
                   plotData={bundleOf(r.id)?.plot ?? null}
                   onOpenElements={() => setElementsRef(r)}
                   onOpenPlot={() => setPlotRef(r)}
-                  onRemove={() => actions.removeReference(r.id)}
+                  onRemove={() => { actions.removeReference(r.id); flash(`已移出《${r.title}》，磁盘文件保留，可随时用「接入已有目录」加回来`) }}
                 />
               ))}
             </div>
@@ -475,6 +617,9 @@ export default function ReferenceLibrary({ onBack }: { onBack: () => void }) {
           structure={bundleOf(confirmRef.ref.id)?.structure ?? null}
           scopeSpec={scopeSpec}
           onScopeChange={setScopeSpec}
+          cp={cps[confirmRef.ref.id]?.[confirmRef.stage] ?? null}
+          budget={budget}
+          onBudgetChange={setBudget}
           onCancel={() => setConfirmRef(null)}
           onConfirm={() => startExtraction(confirmRef.ref, confirmRef.stage)}
         />
@@ -494,13 +639,10 @@ function RefCard({
   analyzing,
   onExtract,
   onExtractPlot,
-  extracting,
   running,
   onStop,
   progress,
-  result,
-  plot,
-  failedBatches,
+  cp,
   onRetryFailed,
   elements,
   /** 磁盘上已有的情节链产物；与本次是否跑过无关 */
@@ -517,14 +659,12 @@ function RefCard({
   analyzing: boolean
   onExtract: () => void
   onExtractPlot: () => void
-  extracting: boolean
   running: boolean
   onStop: () => void
   progress: QueueProgress | null
-  result: RefElements | null
-  plot: RefPlot | null
-  failedBatches: number
-  onRetryFailed: () => void
+  /** 磁盘断点摘要：失败批次与可重建批次都来自这里 */
+  cp: Partial<Record<AiStage, CpInfo>>
+  onRetryFailed: (stage: AiStage) => void
   /** 磁盘上已有的要素产物；与本次是否跑过无关，关掉应用重开仍可查看 */
   elements: RefElements | null
   /** 磁盘上已有的情节链产物 */
@@ -538,8 +678,15 @@ function RefCard({
 }) {
   const hasElements = !!elements
   const hasPlot = !!plotData
-  const st = STAGE_META[item.stage]
+  const st = STAGE_META[item.stage] ?? STAGE_META.idle
   const pct = progress ? Math.round(progressRatio(progress) * 100) : 0
+  const failElements = cp.elements?.failed ?? 0
+  const failPlot = cp.plot?.failed ?? 0
+  // 只有磁盘上真有批次，才提「从缓存重建」；否则点了必然报「没有批次」
+  const canRebuildElements = !hasElements && (cp.elements?.cached ?? 0) > 0
+  const canRebuildPlot = !hasPlot && (cp.plot?.cached ?? 0) > 0
+  const [confirmRemove, setConfirmRemove] = useState(false)
+
   return (
     <div className="ref-card">
       <div className="ref-card-head">
@@ -554,7 +701,7 @@ function RefCard({
       </div>
 
       {/* 运行中：进度 + 中断 */}
-      {extracting && progress && (
+      {running && progress && (
         <div className="ref-card-run">
           <div className="rcr-top">
             <span className="rcr-txt">
@@ -575,10 +722,9 @@ function RefCard({
         </div>
       )}
 
-      {/* 结果概要 */}
-      {(result || plot || hasElements) && !extracting && (
+      {/* 结果概要：完全由磁盘产物驱动，跑没跑过都一样 */}
+      {!running && (hasElements || hasPlot) && (
         <div className="ref-card-run">
-          {/* 有 elements.json 就有入口 —— 与本次是否跑过无关，关掉应用重开照样能看 */}
           {hasElements && (
             <div className="rcr-result">
               <button className="rcr-kpi" onClick={onOpenElements}>
@@ -590,10 +736,8 @@ function RefCard({
               <button className="rcr-kpi" onClick={onOpenElements}>
                 <b>{elements?.foreshadows.length ?? 0}</b> 伏笔
               </button>
-              <span className="rcr-hint">点击查看详情</span>
             </div>
           )}
-          {/* 与要素同理：入口由磁盘上的 plot.json 决定，关掉应用重开照样可看 */}
           {hasPlot && (
             <div className="rcr-result">
               <button className="rcr-kpi" onClick={onOpenPlot}>
@@ -605,14 +749,28 @@ function RefCard({
               <button className="rcr-kpi" onClick={onOpenPlot}>
                 <b>{(plotData?.arcs ?? []).filter((a) => a.skeleton).length}</b> 骨架
               </button>
-              <span className="rcr-hint">点击查看详情</span>
             </div>
           )}
-          {failedBatches > 0 && (
+          <div className="rcr-hint" style={{ textAlign: 'right', marginTop: 6 }}>点击数字查看详情</div>
+        </div>
+      )}
+
+      {/* 失败批次：从 checkpoint 读，重启后依然可见 */}
+      {!running && (failElements > 0 || failPlot > 0) && (
+        <div className="ref-card-run">
+          {failElements > 0 && (
             <div className="rcr-gap">
-              <div className="rcr-gap-t">有 {failedBatches} 批抽取失败，这部分内容缺失</div>
-              <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={onRetryFailed}>
-                <RotateCcw size={13} /> 只重跑失败的批次
+              <div className="rcr-gap-t">要素抽取有 {failElements} 批失败，这部分内容缺失</div>
+              <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => onRetryFailed('elements')}>
+                <RotateCcw size={13} /> 只重跑失败的 {failElements} 批
+              </button>
+            </div>
+          )}
+          {failPlot > 0 && (
+            <div className="rcr-gap" style={{ marginTop: failElements > 0 ? 8 : 0 }}>
+              <div className="rcr-gap-t">情节链有 {failPlot} 批失败，这部分内容缺失</div>
+              <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => onRetryFailed('plot')}>
+                <RotateCcw size={13} /> 只重跑失败的 {failPlot} 批
               </button>
             </div>
           )}
@@ -637,14 +795,14 @@ function RefCard({
             <button className="btn btn-ref btn-sm" onClick={onExtractPlot}>情节链拆解</button>
           </div>
           {/* 缺产物但缓存还在时，优先给「重建」而不是让用户重跑（重跑要花钱） */}
-          {!hasElements && (
+          {canRebuildElements && (
             <button className="btn btn-ghost btn-sm rc-rebuild" disabled={!!rebuilding} onClick={() => onRebuild(item, 'elements')}>
-              {rebuilding === `${item.id}:elements` ? '重建中…' : '从缓存重建要素（免费）'}
+              {rebuilding === `${item.id}:elements` ? '重建中…' : `从缓存重建要素（${cp.elements?.cached} 批，免费）`}
             </button>
           )}
-          {!hasPlot && (
+          {canRebuildPlot && (
             <button className="btn btn-ghost btn-sm rc-rebuild" disabled={!!rebuilding} onClick={() => onRebuild(item, 'plot')}>
-              {rebuilding === `${item.id}:plot` ? '重建中…' : '从缓存重建情节链（免费）'}
+              {rebuilding === `${item.id}:plot` ? '重建中…' : `从缓存重建情节链（${cp.plot?.cached} 批，免费）`}
             </button>
           )}
           <div className="ref-card-hint">
@@ -655,7 +813,14 @@ function RefCard({
 
       <div className="ref-card-foot">
         <span className="note ellip mono" style={{ fontSize: 11 }} title={item.dir}>{item.dir || '未绑定目录'}</span>
-        <button className="icon-btn square" title="移出参考库（不删除磁盘文件）" onClick={onRemove}><Trash2 size={14} /></button>
+        {confirmRemove ? (
+          <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <button className="btn btn-ghost btn-sm" style={{ padding: '2px 7px', fontSize: 11 }} onClick={() => setConfirmRemove(false)}>取消</button>
+            <button className="btn btn-sm" style={{ padding: '2px 7px', fontSize: 11, color: 'var(--danger)' }} onClick={onRemove}>确认移出</button>
+          </span>
+        ) : (
+          <button className="icon-btn square" title="移出参考库（不删除磁盘文件）" onClick={() => setConfirmRemove(true)}><Trash2 size={14} /></button>
+        )}
       </div>
     </div>
   )
@@ -675,6 +840,9 @@ function CostConfirmModal({
   onConfirm,
   scopeSpec,
   onScopeChange,
+  cp,
+  budget,
+  onBudgetChange,
 }: {
   refItem: Reference
   stage: AiStage
@@ -684,14 +852,27 @@ function CostConfirmModal({
   onConfirm: () => void
   scopeSpec: ScopeSpec
   onScopeChange: (s: ScopeSpec) => void
+  /** 该阶段的磁盘断点；有进度时这里要显示「续跑」而不是「从头开始」 */
+  cp: CpInfo | null
+  budget: number | null
+  onBudgetChange: (v: number | null) => void
 }) {
   const cfg = DEFAULT_QUEUE_CONFIG
   const avgChars = refItem.chapterCount > 0 ? refItem.wordCount / refItem.chapterCount : 0
   const total = refItem.chapterCount || structure?.chapterCount || 0
   const scope = resolveScope(scopeSpec, total, structure?.volumes ?? [])
   const analyzed = scopeChapterCount(scope)
+
+  // 有断点时只预估**剩余**批次：预估按全额算会让续跑的人以为还要再花一遍钱。
+  // 但断点的档位与当前选择不同时不能续跑 —— 缓存会被判为对不上而作废。
+  const scopeChanged = !!cp?.scopeLabel && cp.scopeLabel !== scope.label
+  const resumable = !!cp && cp.status !== 'done' && cp.total > 0 && !scopeChanged
+  const remainingBatches = resumable ? Math.max(0, cp!.total - cp!.completed - cp!.failed) : null
+  const allFailed = resumable && remainingBatches === 0 && (cp!.failed ?? 0) > 0
+  const estimateChapters =
+    remainingBatches !== null ? Math.min(analyzed, remainingBatches * (cp!.batchChapters || cfg.batchChapters)) : analyzed
   const est = estimateCost(
-    analyzed, cfg.batchChapters, avgChars, cfg.pricing, isPeakHour(),
+    estimateChapters, cfg.batchChapters, avgChars, cfg.pricing, isPeakHour(),
     0.6, OUTPUT_TOKENS_PER_BATCH[stage],
   )
 
@@ -720,7 +901,7 @@ function CostConfirmModal({
             <div className="scope-opts">
               {[
                 { spec: { kind: SCOPE_PER_VOLUME, perVolume: 20 } as ScopeSpec, t: '每卷前 20 章', d: '推荐 · 能看到每一卷的开局节奏' },
-                { spec: { kind: SCOPE_HEAD, head: 100 } as ScopeSpec, t: '前 100 章', d: '试水 · 约 ¥1' },
+                { spec: { kind: SCOPE_HEAD, head: 100 } as ScopeSpec, t: '前 100 章', d: '试水 · 最便宜' },
                 { spec: { kind: SCOPE_ALL } as ScopeSpec, t: '全书', d: '完整 · 最贵' },
               ].map((o) => (
                 <button key={o.t} className={`scope-opt ${JSON.stringify(scopeSpec) === JSON.stringify(o.spec) ? 'on' : ''}`}
@@ -737,20 +918,67 @@ function CostConfirmModal({
                 卷配比与模板均<b>基于已分析章节</b>，不代表全书。
               </div>
             )}
+            {/* 换档位后旧缓存会被判为对不上而自动作废，这里必须说清楚 */}
+            {resumable && (
+              <div className="scope-warn" style={{ marginTop: 8 }}>
+                已有断点（{cp!.scopeLabel ?? '范围未知'}）：{cp!.completed}/{cp!.total} 批完成
+                {cp!.failed > 0 ? `、${cp!.failed} 批失败` : ''}。开始后会从断点续跑。
+              </div>
+            )}
+            {scopeChanged && (
+              <div className="scope-warn" style={{ marginTop: 8 }}>
+                已有断点是按「{cp!.scopeLabel}」跑的，与当前选择的范围不同 ——
+                开始后会作废旧缓存并按新范围重跑，不要把旧批次的费用算进来。
+              </div>
+            )}
           </div>
 
-          <div className="ref-row"><span className="k">批次</span><span className="v">{est.batches} 批（每批 {cfg.batchChapters} 章）</span></div>
-          <div className="ref-row">
-            <span className="k">预计花费</span>
-            <span className="v">
-              <b style={{ color: 'var(--accent)' }}>¥{est.costMin} ~ ¥{est.costMax}</b>
-            </span>
-          </div>
+          {allFailed ? (
+            <div className="rcr-gap" style={{ marginTop: 10 }}>
+              <div className="rcr-gap-t">当前范围的批次都已处理过（其中 {cp!.failed} 批失败）</div>
+              <div className="note" style={{ fontSize: 11.5, marginTop: 4 }}>
+                用卡片上的「只重跑失败的 N 批」把它们重新入队，直接点这里不会有新的批次可跑。
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="ref-row"><span className="k">批次</span><span className="v">{est.batches} 批（每批 {cfg.batchChapters} 章）</span></div>
+              <div className="ref-row">
+                <span className="k">预计花费</span>
+                <span className="v">
+                  <b style={{ color: 'var(--accent)' }}>¥{est.costMin} ~ ¥{est.costMax}</b>
+                  {resumable && <span className="note" style={{ marginLeft: 8 }}>按剩余 {remainingBatches} 批估算</span>}
+                </span>
+              </div>
+            </>
+          )}
           {est.peak && (
             <div className="rcr-gap" style={{ marginTop: 10 }}>
               <div className="rcr-gap-t">当前是 DeepSeek 高峰时段（9:00–12:00 / 14:00–18:00），同样任务费用翻倍</div>
             </div>
           )}
+
+          {/* 预算必须可改：默认 ¥50 用尽会暂停，而「加预算」原本没有任何入口 */}
+          <div className="ref-row" style={{ alignItems: 'center' }}>
+            <span className="k">费用上限</span>
+            <span className="v" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                className="field"
+                type="number"
+                min={0}
+                step={5}
+                style={{ width: 96, padding: '5px 8px', fontSize: 12.5 }}
+                value={budget ?? ''}
+                placeholder="不限"
+                onChange={(e) => {
+                  const v = e.target.value.trim()
+                  onBudgetChange(v === '' ? null : Math.max(0, Number(v)))
+                }}
+              />
+              <span className="note" style={{ fontSize: 11 }}>元 · 超出会暂停，调高后重新点开始即可续跑</span>
+            </span>
+          </div>
+
           <div className="note" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.75 }}>
             实际费用随模型输出长度浮动，预估给的是区间而非定值。中途可随时中断，进度会保存；
             失败批次不会被静默跳过，运行结束会明确告诉你缺了多少。
@@ -759,8 +987,8 @@ function CostConfirmModal({
         <div className="modal-foot">
           <span style={{ flex: 1 }} />
           <button className="btn btn-ghost" onClick={onCancel}>取消</button>
-          <button className="btn btn-primary" disabled={!ready} onClick={onConfirm}>
-            开始拆解（约 ¥{est.costMax}）
+          <button className="btn btn-primary" disabled={!ready || allFailed} onClick={onConfirm}>
+            {resumable ? `继续拆解（约 ¥${est.costMax}）` : `开始拆解（约 ¥${est.costMax}）`}
           </button>
         </div>
       </div>
@@ -882,7 +1110,7 @@ function CompareView({
         </thead>
         <tbody>
           {COMPARE_DIMS.map((d) => {
-            const best = bestOf(cols, d)
+            const ex = extremesOf(cols, d)
             return (
               <tr key={d.key}>
                 <td className="dim-col">
@@ -890,16 +1118,24 @@ function CompareView({
                   {d.unit && <span className="dim-u">{d.unit}</span>}
                   {d.weak && <span className="dim-weak">弱信号</span>}
                 </td>
-                {cols.map((c) => (
-                  <td key={c.refId} className={`num ${best.includes(c.refId) ? 'best' : ''}`}>
-                    {formatNumber(c.values[d.key] ?? 0)}
-                  </td>
-                ))}
+                {cols.map((c) => {
+                  const isMax = ex.max.includes(c.refId)
+                  const isMin = ex.min.includes(c.refId)
+                  return (
+                    <td key={c.refId} className={`num ${isMax ? 'hi' : ''} ${isMin ? 'lo' : ''}`}
+                      title={isMax ? '本维度最高' : isMin ? '本维度最低' : undefined}>
+                      {formatNumber(c.values[d.key] ?? 0)}
+                    </td>
+                  )
+                })}
               </tr>
             )
           })}
         </tbody>
       </table>
+      <div className="note" style={{ marginTop: 8, fontSize: 11 }}>
+        蓝色是该维度最高、灰色是最低 —— <b>只标差异两端，不代表谁更好</b>：章节多、字数大本身没有优劣。
+      </div>
 
       <div className="cmp-ai">
         <div className="eyebrow" style={{ marginBottom: 7 }}>差异解读（可选，一次轻量调用）</div>

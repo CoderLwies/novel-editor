@@ -120,8 +120,11 @@ export default function SettingReferencePanel({
         }))
         .filter((i) => i.label)
       setChecklist(items)
-      // 落盘复用：合并进已有清单表，不覆盖其他子类型
-      const ref = refs.find((r) => r.id === elements[0]?.refId)
+      // 落盘复用：合并进已有清单表，不覆盖其他子类型。
+      // 归属到**实际提供这批设定**的那本书 —— 清单是从它的设定归纳出来的，
+      // 固定写第一本会在跨书聚合时归错源。
+      const ownerId = group.items[0]?.refId
+      const ref = refs.find((r) => r.id === ownerId)
       if (ref && items.length) {
         const store = (await readReferenceAnalysis<ChecklistStore>(ref, 'checklists')) ?? {}
         await writeReferenceAnalysis(ref, 'checklists', { ...store, [groupKey]: items })

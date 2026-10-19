@@ -18,7 +18,7 @@ import { writeChapterFile, writeBookMeta, writeProjectToDir, stripContent, hydra
 import { supportsFileStorage, getUserDataDir } from './fs'
 import { analyzeStructure, runElementExtraction, runPlotExtraction, clearFailedBatches, rebuildFromRaw } from './refanalysis'
 import type { RefStructure, RefElements, RefPlot } from './refschema'
-import type { QueueProgress, AiStage, ScopeSpec } from './aiqueue'
+import type { QueueProgress, AiStage, ScopeSpec, QueueConfig, ChapterScope } from './aiqueue'
 import type { RunResult } from './aiqueue-runner'
 import { aiReady, chatJSONWithUsage, SYS_PLANNER } from './ai'
 import { SYS_CHECKLIST, type ChecklistResult, diffInsightPrompt, type DiffInsight } from './refprompt'
@@ -811,7 +811,7 @@ export const actions = {
    */
   async extractElements(
     id: ID,
-    opts: { onProgress?: (p: QueueProgress) => void; signal?: AbortSignal; retryFailed?: boolean; scope?: ScopeSpec } = {},
+    opts: { onProgress?: (p: QueueProgress) => void; signal?: AbortSignal; retryFailed?: boolean; scope?: ScopeSpec; explicitScope?: ChapterScope; config?: Partial<QueueConfig> } = {},
   ): Promise<{ elements: RefElements; run: RunResult }> {
     const ref = state.references.find((r) => r.id === id)
     if (!ref) throw new Error('参考作品不存在')
@@ -823,6 +823,10 @@ export const actions = {
       ai: state.ai,
       onProgress: opts.onProgress,
       signal: opts.signal,
+      // 档位必须透传：漏传会让「每卷前 20 章」静默变成全书，费用差一个量级
+      scope: opts.scope,
+      explicitScope: opts.explicitScope,
+      config: opts.config,
     })
     actions.updateReference(id, { stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
     return { elements, run }
@@ -831,7 +835,7 @@ export const actions = {
   /** 阶段三：情节链拆解。需先有结构统计（拿到章序），但不必等要素抽取完成 */
   async extractPlot(
     id: ID,
-    opts: { onProgress?: (p: QueueProgress) => void; signal?: AbortSignal; retryFailed?: boolean; scope?: ScopeSpec } = {},
+    opts: { onProgress?: (p: QueueProgress) => void; signal?: AbortSignal; retryFailed?: boolean; scope?: ScopeSpec; explicitScope?: ChapterScope; config?: Partial<QueueConfig> } = {},
   ): Promise<{ plot: RefPlot; run: RunResult; arcError: string | null }> {
     const ref = state.references.find((r) => r.id === id)
     if (!ref) throw new Error('参考作品不存在')
@@ -843,6 +847,9 @@ export const actions = {
       ai: state.ai,
       onProgress: opts.onProgress,
       signal: opts.signal,
+      scope: opts.scope,
+      explicitScope: opts.explicitScope,
+      config: opts.config,
     })
     actions.updateReference(id, { stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
     return { plot, run, arcError }

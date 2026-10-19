@@ -83,7 +83,8 @@ export function structureTemplates(b: RefAnalysisBundle): RefTemplate[] {
   const s = b.structure
   const p = b.plot
   if (!s || !p) return []
-  const mix = volumeMixFrom(s, p)
+  // 空卷不生成模板：0 章的「过渡型」卡片只会稀释模板库
+  const mix = volumeMixFrom(s, p).filter((m) => m.chapterCount > 0 && m.endChapter >= m.startChapter)
   if (!mix.length) return []
 
   const total = mix.reduce((n, m) => n + m.chapterCount, 0) || 1
@@ -163,8 +164,6 @@ export interface CompareDim {
   key: string
   label: string
   unit?: string
-  /** 越大越好还是越小越好；用于标出「更优」 */
-  better?: 'high' | 'low'
   get: (b: RefAnalysisBundle) => number
   /** 该维度是否只是叙述层的弱信号 */
   weak?: boolean
@@ -220,13 +219,24 @@ export function buildComparison(bundles: RefAnalysisBundle[]): CompareCol[] {
   }))
 }
 
-/** 某一维度上谁最优；无 better 方向的维度不标 */
-export function bestOf(cols: CompareCol[], dim: CompareDim): string[] {
-  if (!dim.better || cols.length < 2) return []
+/**
+ * 某一维度上的极值（最高 / 最低）。
+ *
+ * 刻意不叫「最优」：章节多、字数大、伏笔跨度长本身没有好坏之分，
+ * 把某一端标成「最优」是在替用户做价值判断。这里只标出差异的两端，
+ * 让读者自己看出取舍。
+ */
+export function extremesOf(cols: CompareCol[], dim: CompareDim): { max: string[]; min: string[] } {
+  if (cols.length < 2) return { max: [], min: [] }
   const vals = cols.map((c) => c.values[dim.key] ?? 0)
-  const best = dim.better === 'high' ? Math.max(...vals) : Math.min(...vals)
-  if (!Number.isFinite(best)) return []
-  return cols.filter((c) => (c.values[dim.key] ?? 0) === best).map((c) => c.refId)
+  const max = Math.max(...vals)
+  const min = Math.min(...vals)
+  // 全部相同（或都是 0）时标极值没有信息量
+  if (!Number.isFinite(max) || max === min) return { max: [], min: [] }
+  return {
+    max: cols.filter((c) => (c.values[dim.key] ?? 0) === max).map((c) => c.refId),
+    min: cols.filter((c) => (c.values[dim.key] ?? 0) === min).map((c) => c.refId),
+  }
 }
 
 /** 汇总成一句可读的差异，供「差异解读」那一步用 */

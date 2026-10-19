@@ -124,11 +124,13 @@ export default function ReferencePanel({
 
             <div className="rp-sec">
               <button className="btn btn-primary btn-sm" style={{ width: '100%', justifyContent: 'center' }}
-                disabled={locating || !aiReady(state.ai)} onClick={locate}>
+                disabled={locating || !aiReady(state.ai) || candidates.length === 0} onClick={locate}>
                 {locating ? <><Loader2 size={14} /> 正在比对…</> : <><Sparkles size={14} /> 你现在写到第几拍</>}
               </button>
               <div className="rp-note" style={{ marginTop: 7 }}>
-                拿这一章的正文去比对参考书的 {candidates.length} 个情节特征，不是按章号推算。
+                {candidates.length > 0
+                  ? <>拿这一章的正文去比对参考书的 {candidates.length} 个情节特征，不是按章号推算。</>
+                  : '这本书的情节链只有情节拍、没有叙事线（多是「从缓存重建」的结果），无法定位。重跑一次「情节链拆解」即可补上骨架。'}
               </div>
             </div>
 

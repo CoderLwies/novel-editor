@@ -199,6 +199,13 @@ describe('成本预估', () => {
     expect(on.peak).toBe(true)
   })
 
+  it('输入 token 按「字符 × 0.6」估算，不再少算三个数量级', () => {
+    // 100 章 / 每批 4 章 = 25 批，每批 1.2 万字 → 25 × 12000 × 0.6 = 180,000 token
+    // 旧公式 (avgChars/1000)*0.6 会算出 180 token，等于把输入成本当成 0
+    const e = estimateCost(100, 4, 3000, DEFAULT_PRICING, false)
+    expect(e.inputTokens).toBe(180000)
+  })
+
   it('章数翻倍则成本翻倍（按绝对误差比较，金额只有分位有效）', () => {
     const a = estimateCost(100, 4, 3000, DEFAULT_PRICING, false)
     const b = estimateCost(200, 4, 3000, DEFAULT_PRICING, false)

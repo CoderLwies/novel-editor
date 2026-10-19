@@ -345,15 +345,19 @@ export function estimateCost(
   avgChapterChars: number,
   pricing: ModelPricing = DEFAULT_PRICING,
   peak = isPeakHour(),
-  /** 每千字约 0.6 token（DeepSeek 官方口径：1 中文字符 ≈ 0.6 token） */
-  tokensPerKChars = 0.6,
+  /**
+   * 每字符约 0.6 token（DeepSeek 官方口径：1 个中文字符 ≈ 0.6 token）。
+   * 这里按**字符**计，不是按千字符 —— 早先写成「每千字 0.6」再乘以
+   * avgChars/1000，把输入 token 低估了 1000 倍，预估金额随之下穿地板。
+   */
+  tokensPerChar = 0.6,
   /** 输出侧粗估：按阶段取经验值，别再用统一的小数字 */
   outputTokensPerBatch = OUTPUT_TOKENS_PER_BATCH.elements,
 ): CostEstimate {
   // 按批计费：分档后章数变少，直接用章数会高估
   const batches = Math.ceil(chapterCount / Math.max(1, batchChapters))
   const avgCharsPerBatch = Math.round(avgChapterChars * batchChapters)
-  const inputTokens = Math.round(batches * (avgCharsPerBatch / 1000) * tokensPerKChars)
+  const inputTokens = Math.round(batches * avgCharsPerBatch * tokensPerChar)
   const outputTokens = batches * outputTokensPerBatch
   const lo = costOf(inputTokens, Math.round(outputTokens * 0.5), pricing, peak)
   const hi = costOf(inputTokens, outputTokens, pricing, peak)
