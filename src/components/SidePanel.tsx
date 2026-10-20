@@ -60,10 +60,12 @@ export default function SidePanel({
         ))}
       </div>
 
-      {tab === 'outline' && <OutlineTab book={book} chapter={chapter} onOpenVolumeRef={onOpenRef ? (id) => onOpenRef('volume', id) : undefined} />}
-      {tab === 'characters' && <CharactersTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
-      {tab === 'settings' && <SettingsTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} onOpenSettingRef={onOpenRef ? (id) => onOpenRef('setting', id) : undefined} />}
-      {tab === 'foreshadow' && <ForeshadowTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
+      <div className="side-scroll">
+        {tab === 'outline' && <OutlineTab book={book} chapter={chapter} onOpenVolumeRef={onOpenRef ? (id) => onOpenRef('volume', id) : undefined} />}
+        {tab === 'characters' && <CharactersTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
+        {tab === 'settings' && <SettingsTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} onOpenSettingRef={onOpenRef ? (id) => onOpenRef('setting', id) : undefined} />}
+        {tab === 'foreshadow' && <ForeshadowTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
+      </div>
 
       <div className="side-add">
         {tab === 'characters' && (
@@ -89,7 +91,7 @@ export default function SidePanel({
   )
 }
 
-function OutlineTab({ book, chapter, onOpenVolumeRef }: { book: Book; chapter?: Chapter; onOpenVolumeRef?: (volumeId: ID) => void }) {
+export function OutlineTab({ book, chapter, onOpenVolumeRef }: { book: Book; chapter?: Chapter; onOpenVolumeRef?: (volumeId: ID) => void }) {
   const state = useStore()
   const volumes = volumesOf(state, book.id)
   const [openVols, setOpenVols] = useState<Set<ID>>(() => new Set(volumes.map((v) => v.id)))
@@ -122,7 +124,7 @@ function OutlineTab({ book, chapter, onOpenVolumeRef }: { book: Book; chapter?: 
   }
 
   return (
-    <div className="side-scroll">
+    <div className="side-pane">
       <div className="side-section-label">总纲 / 简介</div>
       <textarea
         className="field"
@@ -679,7 +681,7 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
   )
 }
 
-function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
+export function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
   const state = useStore()
   const [showGraph, setShowGraph] = useState(false)
   const all = state.characters.filter((c) => c.bookId === bookId)
@@ -687,7 +689,7 @@ function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; fil
   const list = kw ? all.filter((c) => `${c.name}${c.role}${c.desc}${(c.aliases ?? []).join('')}`.includes(kw)) : all
   const chapters = state.chapters.filter((c) => c.bookId === bookId)
   return (
-    <div className="side-scroll">
+    <div className="side-pane">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <div style={{ flex: 1 }}>
           <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索角色名 / 别名 / 定位…" />
@@ -713,7 +715,7 @@ function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; fil
   )
 }
 
-function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef }: { bookId: string; filter: string; onFilterChange: (v: string) => void; onOpenSettingRef?: (settingId: ID) => void }) {
+export function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef }: { bookId: string; filter: string; onFilterChange: (v: string) => void; onOpenSettingRef?: (settingId: ID) => void }) {
   const state = useStore()
   const [showGen, setShowGen] = useState(false)
   const [showAiSettings, setShowAiSettings] = useState(false)
@@ -757,7 +759,7 @@ function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef }: { boo
   }
 
   return (
-    <div className="side-scroll">
+    <div className="side-pane">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <div style={{ flex: 1 }}>
           <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索设定名 / 描述 / 状态…" />
@@ -880,7 +882,7 @@ function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef }: { boo
   )
 }
 
-function ForeshadowTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
+export function ForeshadowTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
   const state = useStore()
   const all = state.foreshadows.filter((c) => c.bookId === bookId)
   const kw = filter.trim()
@@ -903,7 +905,7 @@ function ForeshadowTab({ bookId, filter, onFilterChange }: { bookId: string; fil
     .filter((r) => r.plant.length > 0 || r.pay.length > 0)
 
   return (
-    <div className="side-scroll">
+    <div className="side-pane">
       <FilterBox value={filter} onChange={onFilterChange} placeholder="搜索伏笔标题 / 内容…" />
       <div className="side-section-label">埋 / 收时间线</div>
       {timeline.length === 0 && <Empty text="还没有伏笔挂接，去大纲 tab 给章节挂埋/收" />}

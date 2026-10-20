@@ -82,7 +82,11 @@ export function migrate(raw: AppState): AppState {
       ...raw.ui,
       jump: null,
       lastGoalToastDate: raw.ui.lastGoalToastDate ?? '',
-      view: raw.ui.view ?? 'write',
+      // 旧数据里的 'outline'（旧的大纲模式）对应现在的规划台
+      view: ((raw.ui as { view?: string }).view === 'plan' ||
+        (raw.ui as { view?: string }).view === 'outline')
+        ? 'plan'
+        : 'write',
       focusMode: false,
       onboarded: raw.ui.onboarded ?? true,
       recentBookIds: raw.ui.recentBookIds ?? [],
@@ -705,15 +709,15 @@ export const actions = {
   openChapter(chapterId: ID) {
     set((s) => ({ ...s, ui: { ...s.ui, lastChapterId: chapterId, view: 'write' } }))
   },
-  /** 切换工作台视图（写作台 / 大纲页）。落进 ui，本次开书期间保持。 */
+  /** 切换工作台视图（规划台 / 正文台）。落进 ui，本次开书期间保持。 */
   setView(view: WorkspaceView) {
     set((s) => ({
       ...s,
       ui: {
         ...s.ui,
         view,
-        // 专注模式是「写作时沉浸」，进大纲页就退出——否则大纲页没有退出入口
-        focusMode: view === 'outline' ? false : s.ui.focusMode,
+        // 专注模式是「写作时沉浸」，进规划台就退出——否则规划台没有退出入口
+        focusMode: view === 'plan' ? false : s.ui.focusMode,
       },
     }))
   },

@@ -50,11 +50,13 @@ async function main() {
   await sleep(500)
   await shot('06-outline-chapter.png')
 
-  // 1c) 全书大纲表视图
-  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('大纲'))?.click()`)
+  // 1c) 规划台：先切「总览」看全书大纲表
+  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('规划'))?.click()`)
+  await sleep(600)
+  await js(`[...document.querySelectorAll('.plan-tab')].find(t=>t.textContent.includes('总览'))?.click()`)
   await sleep(600)
   await shot('07-outline-table.png')
-  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('写作'))?.click()`)
+  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('正文'))?.click()`)
   await sleep(500)
 
   // 2) 工作台 - 角色侧栏

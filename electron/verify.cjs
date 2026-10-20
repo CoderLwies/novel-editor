@@ -246,13 +246,19 @@ async function main() {
   const meta = bj?.chaptersMeta?.find((m) => m.goal === '纲目标E2E标记')
   console.log('E2E outline fields -> persisted goal:', !!meta, '| outlineStatus:', meta?.outlineStatus)
 
-  // 2c) 大纲页是独立视图：有自己的内容区（无编辑器），且目录树/侧栏照常在
-  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('大纲'))?.click()`)
+  // 2c) 规划台是独立视图：宽版主区（无编辑器、无侧栏），目录树照常在
+  await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('规划'))?.click()`)
+  await sleep(600)
+  const planTabs = await js(`[...document.querySelectorAll('.plan-tab')].map(t=>t.textContent.trim()).join('|')`)
+  // 规划台独占工作区：有自己的主区，不要编辑器也不要侧栏；目录树保留（建卷/删章）
+  const standalone = await js(`!!document.querySelector('.plan-main') && !document.querySelector('.editor-pane') && !document.querySelector('.side') && !!document.querySelector('.tree')`)
+  // 宽版章纲编辑可用（总纲/卷纲/章纲都在规划台主区，不必挤侧栏）
+  const planOutlineFields = await js(`document.querySelectorAll('.plan-scroll .ol-field').length`)
+  // 切「总览」看全书大纲表：拖拽排序 + 纲状态
+  await js(`[...document.querySelectorAll('.plan-tab')].find(t=>t.textContent.includes('总览'))?.click()`)
   await sleep(600)
   const rows = await js(`document.querySelectorAll('.ov-row').length`)
   const hasDot = await js(`!!document.querySelector('.ov-row .os-dot')`)
-  // 大纲页有自己的内容区；目录树与侧栏仍在（建卷/删章/改章纲不能因换页而消失）
-  const standalone = await js(`!!document.querySelector('.outline-view') && !document.querySelector('.editor-pane') && !!document.querySelector('.tree') && !!document.querySelector('.side')`)
   await shot('12-outline-view.png')
   await js(`(() => {
     const sel = document.querySelector('.ov-row .ov-select')
@@ -267,7 +273,8 @@ async function main() {
   await js(`document.querySelector('.ov-row .ov-name')?.click()`)
   await sleep(500)
   const backToEditor = await js(`!!document.querySelector('.editor-textarea')`)
-  console.log('E2E outline page -> rows:', rows, '| status dot:', hasDot, '| revised:', revised,
+  console.log('E2E planning page -> tabs:', planTabs, '| outline fields:', planOutlineFields,
+    '| rows:', rows, '| status dot:', hasDot, '| revised:', revised,
     '| standalone:', standalone, '| coverage:', coverage, '| back to editor:', backToEditor)
 
   // 2d) 导出全书大纲 Markdown

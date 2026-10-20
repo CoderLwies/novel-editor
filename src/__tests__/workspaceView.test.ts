@@ -26,16 +26,21 @@ describe('工作台视图路由', () => {
     expect(m.ui.focusMode).toBe(false)
 
     // 专注模式每次启动都要重置，即便旧数据里存着 true
-    const stale = migrate({ ...legacy, ui: { ...legacy.ui, view: 'outline', focusMode: true } })
+    const stale = migrate({ ...legacy, ui: { ...legacy.ui, focusMode: true } })
     expect(stale.ui.focusMode).toBe(false)
   })
 
-  it('从书架进书一律落在写作台', () => {
-    const book = actions.createBook({ title: '测试书' })
-    actions.setView('outline')
-    expect(getState().ui.view).toBe('outline')
+  it('旧数据里的 outline（旧大纲模式）迁移成规划台', () => {
+    const old = migrate({ ...legacy, ui: { ...legacy.ui, view: 'outline' } as never })
+    expect(old.ui.view).toBe('plan')
+  })
 
-    // 这条保证 E2E 里「导入项目后打开书 → 断言编辑器」不会落在大纲页
+  it('从书架进书一律落在正文台', () => {
+    const book = actions.createBook({ title: '测试书' })
+    actions.setView('plan')
+    expect(getState().ui.view).toBe('plan')
+
+    // 这条保证 E2E 里「导入项目后打开书 → 断言编辑器」不会落在规划台
     actions.openBook(book.id)
     expect(getState().ui.view).toBe('write')
     expect(getState().ui.lastBookId).toBe(book.id)
@@ -46,43 +51,43 @@ describe('工作台视图路由', () => {
     const vol = getState().volumes.find((v) => v.bookId === book.id)!
     const ch = actions.createChapter(book.id, vol.id, '第一章')
 
-    actions.setView('outline')
-    expect(getState().ui.view).toBe('outline')
+    actions.setView('plan')
+    expect(getState().ui.view).toBe('plan')
     expect(getState().ui.lastChapterId).toBe(ch.id)
 
     actions.setView('write')
     expect(getState().ui.lastChapterId).toBe(ch.id)
   })
 
-  it('openChapter 一并切回写作台', () => {
+  it('openChapter 一并切回正文台', () => {
     const book = actions.createBook({ title: '测试书' })
     const vol = getState().volumes.find((v) => v.bookId === book.id)!
     const ch = actions.createChapter(book.id, vol.id, '第一章')
 
-    actions.setView('outline')
+    actions.setView('plan')
     actions.openChapter(ch.id)
     expect(getState().ui.view).toBe('write')
     expect(getState().ui.lastChapterId).toBe(ch.id)
   })
 
-  it('切到大纲页自动退出专注模式（大纲页没有退出入口）', () => {
+  it('切到规划台自动退出专注模式（规划台没有退出入口）', () => {
     actions.setFocusMode(true)
-    actions.setView('outline')
+    actions.setView('plan')
     expect(getState().ui.focusMode).toBe(false)
   })
 
-  it('路由决策：view=outline 走大纲页，其余走写作台', () => {
+  it('路由决策：view=plan 走规划台，其余走正文台', () => {
     const book = actions.createBook({ title: '测试书' })
     actions.openBook(book.id)
     expect(resolveWorkspaceView(getState())).toBe('write')
 
-    actions.setView('outline')
-    expect(resolveWorkspaceView(getState())).toBe('outline')
+    actions.setView('plan')
+    expect(resolveWorkspaceView(getState())).toBe('plan')
   })
 
   it('关书回到书架并重置视图', () => {
     actions.createBook({ title: '测试书' })
-    actions.setView('outline')
+    actions.setView('plan')
     actions.closeBook()
 
     expect(getState().ui.lastBookId).toBeNull()

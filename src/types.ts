@@ -132,9 +132,9 @@ export interface UIState {
   lastChapterId: ID | null
   jump: JumpTarget | null
   lastGoalToastDate: string
-  /** 工作台视图：写作台 / 大纲页；旧数据缺失时回落到写作台 */
+  /** 工作台视图：规划台 / 正文台；旧数据缺失时回落到正文台 */
   view?: WorkspaceView
-  /** 专注模式（仅写作台）；每次启动重置为 false */
+  /** 专注模式（仅正文台）；每次启动重置为 false */
   focusMode?: boolean
   /** 是否已完成新手引导 */
   onboarded?: boolean
@@ -142,8 +142,8 @@ export interface UIState {
   recentBookIds?: ID[]
 }
 
-/** 工作台的顶层视图（大纲是独立页面，不写作模式的一个状态） */
-export type WorkspaceView = 'write' | 'outline'
+/** 工作台的顶层视图：规划台（写大纲/设定/角色/伏笔）与正文台（写章节） */
+export type WorkspaceView = 'plan' | 'write'
 
 export interface ChapterSnapshot {
   id: ID

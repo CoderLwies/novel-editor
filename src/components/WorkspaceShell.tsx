@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import {
   ChevronLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
-  Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus, Command, HelpCircle, X,
+  Sun, Moon, Minus, Plus, HardDrive, PenLine, ListTree, Sparkles, Search, Focus, Command, HelpCircle, X,
 } from 'lucide-react'
 import { useStore, actions, volumesOf } from '../store'
 import type { Book } from '../types'
@@ -19,15 +19,23 @@ import UnifiedSearch from './UnifiedSearch'
 import HelpModal from './HelpModal'
 import Modal from './Modal'
 import { onUpdaterStatus, installUpdate, updaterText } from '../updater'
+import { type PlanTab } from './PlanningPage'
 
 /**
  * 工作台外壳：顶栏、侧栏开关、各弹窗、提示与落盘。
  *
- * 写作台和大纲页共用同一套外壳（同一本书不该有两个顶栏），
- * 两者只在中间的 children 不同：写作台给 Editor，大纲页给 OutlinePage。
- * 大纲页不渲染目录树与右侧侧栏。
+ * 规划台与正文台共用同一套外壳（同一本书不该有两个顶栏），
+ * 两者只在中间的 children 不同：正文台给 Editor，规划台给 PlanningPage。
+ * 规划台不渲染右侧侧栏——那 4 块规划内容已搬进规划台主区，宽版编辑。
  */
-export default function WorkspaceShell({ book, children }: { book: Book; children: ReactNode }) {
+export default function WorkspaceShell({
+  book, onPlanJump, children,
+}: {
+  book: Book
+  /** 统一搜索命中角色/设定时，跳到规划台对应标签（规划台没有侧栏） */
+  onPlanJump?: (tab: PlanTab, name: string) => void
+  children: ReactNode
+}) {
   const state = useStore()
   const [sideTab, setSideTab] = useState<SideTab>('outline')
   const [showTree, setShowTree] = useState(true)
@@ -43,7 +51,7 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const view = state.ui.view ?? 'write'
-  const isOutline = view === 'outline'
+  const isPlan = view === 'plan'
   const focusMode = state.ui.focusMode ?? false
   const theme = state.ui.theme
   const fontSize = state.ui.fontSize
@@ -153,17 +161,17 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
         <div className="seg">
           <button
             className={`seg-btn ${view === 'write' ? 'active' : ''}`}
-            title="写作模式"
+            title="正文台：写章节"
             onClick={() => actions.setView('write')}
           >
-            <PenLine size={15} /> 写作
+            <PenLine size={15} /> 正文
           </button>
           <button
-            className={`seg-btn ${isOutline ? 'active' : ''}`}
-            title="全书大纲表"
-            onClick={() => actions.setView('outline')}
+            className={`seg-btn ${isPlan ? 'active' : ''}`}
+            title="规划台：写大纲 / 设定 / 角色 / 伏笔"
+            onClick={() => actions.setView('plan')}
           >
-            <Table2 size={15} /> 大纲
+            <ListTree size={15} /> 规划
           </button>
         </div>
 
@@ -178,14 +186,14 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
         </button>
         <button
           className={`icon-btn square ${focusMode ? 'active' : ''}`}
-          title={focusMode ? '退出专注模式' : '专注模式（隐藏目录与侧栏，大纲页下即全宽表格）'}
+          title={focusMode ? '退出专注模式' : '专注模式（隐藏目录与侧栏）'}
           onClick={() => actions.setFocusMode(!focusMode)}
         >
           <Focus size={17} />
         </button>
         <FileMenu book={book} />
 
-        {!isOutline && (
+        {!isPlan && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <button className="icon-btn square" title="减小字号" onClick={() => actions.setFontSize(fontSize - 1)}>
               <Minus size={16} />
@@ -209,13 +217,15 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
 
-        <button
-          className="icon-btn square"
-          title={showSide ? '隐藏侧栏' : '显示侧栏'}
-          onClick={() => setShowSide((v) => !v)}
-        >
-          {showSide ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
-        </button>
+        {!isPlan && (
+          <button
+            className="icon-btn square"
+            title={showSide ? '隐藏侧栏' : '显示侧栏'}
+            onClick={() => setShowSide((v) => !v)}
+          >
+            {showSide ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+          </button>
+        )}
       </div>
 
       <div className="ws-body">
@@ -223,7 +233,7 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
           <ChapterTree book={book} volumes={volumes} currentChapterId={currentChapter?.id ?? null} />
         )}
         {children}
-        {showSide && !focusMode && (
+        {showSide && !focusMode && !isPlan && (
           <SidePanel
             book={book}
             chapter={currentChapter}
@@ -243,7 +253,11 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
           book={book}
           onClose={() => setShowPalette(false)}
           onPickSide={(tab, name) => {
-            // 大纲页也渲染侧栏，直接切 tab 即可，不必回写作台
+            if (isPlan) {
+              // 规划台没有侧栏：跳到规划台里对应的标签并带上搜索词
+              onPlanJump?.(tab as PlanTab, name)
+              return
+            }
             setSideTab(tab)
             setSideFilter(name)
             setShowSide(true)
