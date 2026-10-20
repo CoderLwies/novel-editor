@@ -4,9 +4,9 @@
 > 结论：**可以抽，成本很低。但"抽哪个大纲"才是真问题。**
 >
 > **状态（第一步已落地）**：常量抽取、路由三态化、大纲页独立化均已实现并通过
-> typecheck / 27 项单测 / production build；大纲页已在浏览器中实测
-> （`.tree` + `.outline-view` + `.side` 同时在，`.editor-pane` 不在）。
-> 第二步（`OutlineTab` 归属）尚未动工。
+> typecheck / 27 项单测 / production build；**Electron E2E 已实跑全绿**（退出码 0，
+> `CONSOLE ERRORS: none`）。大纲页实测形态：`.tree` + `.outline-view` + `.side` 同时在，
+> `.editor-pane` 不在。第二步（`OutlineTab` 归属）尚未动工。
 >
 > **复查后修正**：初版曾把大纲页做成"独占全宽"（砍掉目录树与侧栏），实测发现那是
 > 功能回退——建卷/删章/改名只在目录树里，章纲字段编辑只在侧栏里。已改回保留两侧。
@@ -129,6 +129,12 @@
 | `electron/verify.cjs:249-271` | E2E 用 `.seg-btn` 找「大纲」按钮、断言 `.ov-row` / `.os-dot` / `.ov-select`，并校验 `12-outline-view.png` 截图。已加 `standalone` 断言：大纲页须有 `.outline-view`、无 `.editor-pane`、且 `.tree` 与 `.side` 都在 |
 | `electron/verify.cjs:235-247` | E2E 依赖 `.ol-field` / `.ol-seg-btn`（SidePanel OutlineTab）。大纲页保留侧栏后这些断言在两个视图下都成立 |
 | `src/components/FileMenu.tsx:171` | 「导出全书大纲 Markdown」由 `exportOutlineMd` 读 store，与 UI 无关，无需改动 |
+
+> **已实跑**：`npm run e2e`（= `npm run build && electron electron/verify.cjs`）全绿，退出码 0，
+> `CONSOLE ERRORS: none`。其中关键断言：
+> `E2E outline page -> rows: 1 | revised: true | standalone: true | coverage: 100% | back to editor: true`。
+> 唯一瑕疵是 `21-relation-graph.png` 截图被跳过（`capturePage()` 偶发拿不到 display surface，
+> 脚本自身已 try/catch 兜住），对应的功能断言 `graph nodes: 4` 通过。
 
 ---
 
