@@ -1329,6 +1329,19 @@ label.lbl {
 .plan-scroll .card { max-width: 720px; }
 .plan-scroll .side-pane > .card { margin-bottom: 12px; }
 
+/* 规划台主区：卷纲/章纲字段两列排布，「概括」这类长字段占满整行 */
+.plan-scroll .ol-grid-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+}
+.plan-scroll .ol-grid-fields > .ol-field:first-child { grid-column: 1 / -1; }
+.plan-scroll .ol-field { margin-bottom: 0; }
+.plan-scroll .ol-field textarea.ol-f { line-height: 1.7; }
+@media (max-width: 900px) {
+  .plan-scroll .ol-grid-fields { grid-template-columns: 1fr; }
+}
+
 /* 侧栏 tab 的内容容器：滚动与内边距交给外层（side-scroll / plan-scroll） */
 .side-pane { min-width: 0; }
 .ov-head {

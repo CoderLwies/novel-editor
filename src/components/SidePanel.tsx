@@ -91,7 +91,7 @@ export default function SidePanel({
   )
 }
 
-export function OutlineTab({ book, chapter, onOpenVolumeRef }: { book: Book; chapter?: Chapter; onOpenVolumeRef?: (volumeId: ID) => void }) {
+export function OutlineTab({ book, chapter, onOpenVolumeRef, wide }: { book: Book; chapter?: Chapter; onOpenVolumeRef?: (volumeId: ID) => void; wide?: boolean }) {
   const state = useStore()
   const volumes = volumesOf(state, book.id)
   const [openVols, setOpenVols] = useState<Set<ID>>(() => new Set(volumes.map((v) => v.id)))
@@ -128,7 +128,7 @@ export function OutlineTab({ book, chapter, onOpenVolumeRef }: { book: Book; cha
       <div className="side-section-label">总纲 / 简介</div>
       <textarea
         className="field"
-        rows={4}
+        rows={wide ? 8 : 4}
         value={book.synopsis}
         placeholder="写下这本书的核心设定、主线与卖点…"
         onChange={(e) => actions.updateBook(book.id, { synopsis: e.target.value })}
@@ -187,15 +187,17 @@ export function OutlineTab({ book, chapter, onOpenVolumeRef }: { book: Book; cha
 
             {open && (
               <div className="ol-vol-body">
-                <OlText label="卷纲 · 概括" rows={2} value={v.synopsis}
-                  placeholder="一句话概括本卷走向…"
-                  onChange={(t) => actions.updateVolume(v.id, { synopsis: t })} />
-                <OlText label="本卷目标" rows={1} value={v.goal}
-                  placeholder="主角在本卷要达成什么…"
-                  onChange={(t) => actions.updateVolume(v.id, { goal: t })} />
-                <OlText label="核心冲突" rows={1} value={v.conflict}
-                  placeholder="本卷的主要矛盾…"
-                  onChange={(t) => actions.updateVolume(v.id, { conflict: t })} />
+                <div className="ol-grid-fields">
+                  <OlText label="卷纲 · 概括" rows={2} value={v.synopsis} wide={wide}
+                    placeholder="一句话概括本卷走向…"
+                    onChange={(t) => actions.updateVolume(v.id, { synopsis: t })} />
+                  <OlText label="本卷目标" rows={1} value={v.goal} wide={wide}
+                    placeholder="主角在本卷要达成什么…"
+                    onChange={(t) => actions.updateVolume(v.id, { goal: t })} />
+                  <OlText label="核心冲突" rows={1} value={v.conflict} wide={wide}
+                    placeholder="本卷的主要矛盾…"
+                    onChange={(t) => actions.updateVolume(v.id, { conflict: t })} />
+                </div>
 
                 {chs.map((c) => {
                   const expanded = openCh === c.id
@@ -233,33 +235,35 @@ export function OutlineTab({ book, chapter, onOpenVolumeRef }: { book: Book; cha
                             </button>
                             <WritebackBtn book={book} chapter={c} />
                           </div>
-                          <OlText label="一句话概括" rows={2} value={c.synopsis}
-                            placeholder="本章讲什么…"
-                            onChange={(t) => actions.updateChapter(c.id, { synopsis: t })} />
-                          <OlText label="本章目标" rows={1} value={c.goal}
-                            placeholder="本章要推进什么…"
-                            onChange={(t) => actions.updateChapter(c.id, { goal: t })} />
-                          <OlText label="主要冲突" rows={1} value={c.conflict}
-                            placeholder="谁与谁的矛盾…"
-                            onChange={(t) => actions.updateChapter(c.id, { conflict: t })} />
-                          <OlText label="转折点" rows={1} value={c.turning}
-                            placeholder="剧情在本章何处转向…"
-                            onChange={(t) => actions.updateChapter(c.id, { turning: t })} />
-                          <OlText label="结尾钩子" rows={1} value={c.hook}
-                            placeholder="留什么悬念到下一章…"
-                            onChange={(t) => actions.updateChapter(c.id, { hook: t })} />
-                          <OlText label="视角人物" rows={1} value={c.pov}
-                            placeholder="以谁的视角叙述…"
-                            onChange={(t) => actions.updateChapter(c.id, { pov: t })} />
-                          <OlText label="故事时间（第 N 天）" rows={1}
-                            value={c.storyDay !== undefined && !Number.isNaN(c.storyDay) ? String(c.storyDay) : ''}
-                            placeholder="留空表示不标记，用于时间线校验…"
-                            onChange={(t) => {
-                              const n = Number(t)
-                              actions.updateChapter(c.id, {
-                                storyDay: t.trim() === '' || Number.isNaN(n) ? undefined : n,
-                              })
-                            }} />
+                          <div className="ol-grid-fields">
+                            <OlText label="一句话概括" rows={2} value={c.synopsis} wide={wide}
+                              placeholder="本章讲什么…"
+                              onChange={(t) => actions.updateChapter(c.id, { synopsis: t })} />
+                            <OlText label="本章目标" rows={1} value={c.goal} wide={wide}
+                              placeholder="本章要推进什么…"
+                              onChange={(t) => actions.updateChapter(c.id, { goal: t })} />
+                            <OlText label="主要冲突" rows={1} value={c.conflict} wide={wide}
+                              placeholder="谁与谁的矛盾…"
+                              onChange={(t) => actions.updateChapter(c.id, { conflict: t })} />
+                            <OlText label="转折点" rows={1} value={c.turning} wide={wide}
+                              placeholder="剧情在本章何处转向…"
+                              onChange={(t) => actions.updateChapter(c.id, { turning: t })} />
+                            <OlText label="结尾钩子" rows={1} value={c.hook} wide={wide}
+                              placeholder="留什么悬念到下一章…"
+                              onChange={(t) => actions.updateChapter(c.id, { hook: t })} />
+                            <OlText label="视角人物" rows={1} value={c.pov} wide={wide}
+                              placeholder="以谁的视角叙述…"
+                              onChange={(t) => actions.updateChapter(c.id, { pov: t })} />
+                            <OlText label="故事时间（第 N 天）" rows={1} wide={wide}
+                              value={c.storyDay !== undefined && !Number.isNaN(c.storyDay) ? String(c.storyDay) : ''}
+                              placeholder="留空表示不标记，用于时间线校验…"
+                              onChange={(t) => {
+                                const n = Number(t)
+                                actions.updateChapter(c.id, {
+                                  storyDay: t.trim() === '' || Number.isNaN(n) ? undefined : n,
+                                })
+                              }} />
+                          </div>
 
                           {castPool.length > 0 && (
                             <div className="ol-chips-block">
@@ -398,19 +402,22 @@ function WritebackBtn({ book, chapter }: { book: Book; chapter: Chapter }) {
 }
 
 function OlText({
-  label, rows, value, placeholder, onChange,
+  label, rows, value, placeholder, onChange, wide,
 }: {
   label: string
   rows: number
   value: string
   placeholder: string
   onChange: (t: string) => void
+  /** 宽版（规划台）：单行字段也用多行框，且至少 3 行——长文本在单行框里看不全 */
+  wide?: boolean
 }) {
+  const r = wide ? Math.max(rows, 3) : rows
   return (
     <div className="ol-field">
       <div className="lbl">{label}</div>
-      {rows > 1 ? (
-        <textarea className="field ol-f" rows={rows} value={value} placeholder={placeholder}
+      {r > 1 ? (
+        <textarea className="field ol-f" rows={r} value={value} placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)} />
       ) : (
         <input className="field ol-f" value={value} placeholder={placeholder}
@@ -436,7 +443,7 @@ const CHAR_FIELDS: { key: 'appearance' | 'personality' | 'background' | 'motivat
   { key: 'speech', label: '口头禅 / 语言习惯' },
 ]
 
-function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
+function CharacterCard({ c, appear, wide }: { c: Character; appear: Chapter[]; wide?: boolean }) {
   const [open, setOpen] = useState(false)
   const state = useStore()
   const chars = state.characters.filter((x) => x.bookId === c.bookId)
@@ -563,7 +570,7 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
       {open && CHAR_FIELDS.map((f) => (
         <div className="ol-field" key={f.key}>
           <div className="lbl">{f.label}</div>
-          <textarea className="field ol-f" rows={2} value={c[f.key] ?? ''} placeholder={`${f.label}…`}
+          <textarea className="field ol-f" rows={wide ? 3 : 2} value={c[f.key] ?? ''} placeholder={`${f.label}…`}
             onChange={(e) => actions.updateCharacter(c.id, { [f.key]: e.target.value } as Partial<Character>)} />
         </div>
       ))}
@@ -646,7 +653,7 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
       )}
       <div className="ol-field" style={{ marginTop: 8 }}>
         <div className="lbl">综合备注</div>
-        <textarea className="field ol-f" rows={2} value={c.desc} placeholder="其它备注…"
+        <textarea className="field ol-f" rows={wide ? 4 : 2} value={c.desc} placeholder="其它备注…"
           onChange={(e) => actions.updateCharacter(c.id, { desc: e.target.value })} />
       </div>
 
@@ -681,7 +688,7 @@ function CharacterCard({ c, appear }: { c: Character; appear: Chapter[] }) {
   )
 }
 
-export function CharactersTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
+export function CharactersTab({ bookId, filter, onFilterChange, wide }: { bookId: string; filter: string; onFilterChange: (v: string) => void; wide?: boolean }) {
   const state = useStore()
   const [showGraph, setShowGraph] = useState(false)
   const all = state.characters.filter((c) => c.bookId === bookId)
@@ -700,7 +707,7 @@ export function CharactersTab({ bookId, filter, onFilterChange }: { bookId: stri
       </div>
       {list.length === 0 && <Empty text={kw ? '没有匹配的角色' : '还没有角色，点击下方新增'} />}
       {list.map((c) => (
-        <CharacterCard key={c.id} c={c} appear={chapters.filter((ch) => ch.cast.includes(c.id))} />
+        <CharacterCard key={c.id} c={c} wide={wide} appear={chapters.filter((ch) => ch.cast.includes(c.id))} />
       ))}
       {showGraph && (
         <RelationGraph
@@ -715,7 +722,7 @@ export function CharactersTab({ bookId, filter, onFilterChange }: { bookId: stri
   )
 }
 
-export function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef }: { bookId: string; filter: string; onFilterChange: (v: string) => void; onOpenSettingRef?: (settingId: ID) => void }) {
+export function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef, wide }: { bookId: string; filter: string; onFilterChange: (v: string) => void; onOpenSettingRef?: (settingId: ID) => void; wide?: boolean }) {
   const state = useStore()
   const [showGen, setShowGen] = useState(false)
   const [showAiSettings, setShowAiSettings] = useState(false)
@@ -835,7 +842,7 @@ export function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef }
                       </div>
                     ) : null
                   })()}
-                  <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={2}
+                  <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={wide ? 4 : 2}
                     value={it.desc} placeholder="设定描述…"
                     onChange={(e) => actions.updateSetting(it.id, { desc: e.target.value })} />
                 </div>
@@ -882,7 +889,7 @@ export function SettingsTab({ bookId, filter, onFilterChange, onOpenSettingRef }
   )
 }
 
-export function ForeshadowTab({ bookId, filter, onFilterChange }: { bookId: string; filter: string; onFilterChange: (v: string) => void }) {
+export function ForeshadowTab({ bookId, filter, onFilterChange, wide }: { bookId: string; filter: string; onFilterChange: (v: string) => void; wide?: boolean }) {
   const state = useStore()
   const all = state.foreshadows.filter((c) => c.bookId === bookId)
   const kw = filter.trim()
@@ -1023,7 +1030,7 @@ export function ForeshadowTab({ bookId, filter, onFilterChange }: { bookId: stri
             {broken && (
               <div className="fs-warn">标记为已回收，但没有任何回收章挂接——检查是否漏写回收章。</div>
             )}
-            <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={3}
+            <textarea className="field" style={{ marginTop: 8, fontSize: 12.5, background: 'transparent' }} rows={wide ? 5 : 3}
               value={f.detail} placeholder="伏笔内容、埋设与回收计划…"
               onChange={(e) => actions.updateForeshadow(f.id, { detail: e.target.value })} />
           </div>

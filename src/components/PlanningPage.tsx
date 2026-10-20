@@ -60,10 +60,10 @@ export default function PlanningPage({
 
       <div className="plan-scroll">
         {tab === 'overview' && <OutlineView book={book} onOpenChapter={openChapter} />}
-        {tab === 'outline' && <OutlineTab book={book} />}
-        {tab === 'characters' && <CharactersTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
-        {tab === 'settings' && <SettingsTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
-        {tab === 'foreshadow' && <ForeshadowTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} />}
+        {tab === 'outline' && <OutlineTab book={book} wide />}
+        {tab === 'characters' && <CharactersTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} wide />}
+        {tab === 'settings' && <SettingsTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} wide />}
+        {tab === 'foreshadow' && <ForeshadowTab bookId={book.id} filter={filter} onFilterChange={onFilterChange} wide />}
       </div>
 
       <div className="plan-add">
