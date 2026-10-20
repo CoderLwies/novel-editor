@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Trash2, BookOpen, Feather, FolderInput, FileInput, BookMarked } from 'lucide-react'
+import { Plus, Trash2, BookOpen, Feather, FolderInput, FileInput } from 'lucide-react'
 import { useStore, actions, bookWordCount } from '../store'
 import type { Book } from '../types'
 import { formatNumber } from '../utils'
@@ -14,7 +14,7 @@ const STATUS_LABEL: Record<Book['status'], string> = {
   finished: '已完结',
 }
 
-export default function Bookshelf({ onOpenLibrary }: { onOpenLibrary: () => void }) {
+export default function Bookshelf() {
   const state = useStore()
   const [showNew, setShowNew] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -173,19 +173,6 @@ export default function Bookshelf({ onOpenLibrary }: { onOpenLibrary: () => void
           <BookOpen size={30} />
           <span style={{ fontSize: 13.5 }}>创建新的作品</span>
         </button>
-      </div>
-
-      <div className="shelf-ref-entry" onClick={onOpenLibrary} role="button" tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenLibrary() } }}>
-        <div className="sre-icon"><BookMarked size={20} /></div>
-        <div style={{ flex: 1 }}>
-          <div className="sre-title">参考库</div>
-          <div className="sre-desc">
-            导入他人作品做拆解分析 —— 抽取角色与设定、拆出情节链与节奏骨架，生成可迁移到你自己书上的借鉴模板。
-            {state.references.length > 0 && `　已入库 ${state.references.length} 部。`}
-          </div>
-        </div>
-        <span className="btn btn-ghost btn-sm" style={{ pointerEvents: 'none' }}>进入参考库 →</span>
       </div>
 
       {showNew && <NewBookModal onClose={() => setShowNew(false)} />}

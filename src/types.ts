@@ -125,45 +125,6 @@ export interface Foreshadow {
 /** date(YYYY-MM-DD) -> 当日新增字数 */
 export type DailyLog = Record<string, number>
 
-/* ------------------------------ 参考库 ------------------------------ */
-
-/**
- * 参考作品的分析阶段。
- * idle 仅完成拆章入库；scanning 快速扫描；scanned 扫描完成可决定是否深挖；
- * reading 深度精读；done 全部完成。
- */
-export type RefStage = 'idle' | 'scanning' | 'scanned' | 'reading' | 'done'
-
-/** 参考作品的一个卷（仅概要，不载正文） */
-export interface RefVolume {
-  title: string
-  chapterCount: number
-}
-
-/**
- * 参考作品：导入他人小说做拆解分析。
- * 与 Book 刻意分开 —— 参考书没有写作语义（无日更目标 / 字数统计 / 章树编辑），
- * 产出是分析报告与借鉴模板，不是章节正文。原文一律落盘，本地仅存这份轻量元数据。
- */
-export interface Reference {
-  id: ID
-  title: string
-  author: string
-  genre: string
-  /** 原文总字数 */
-  wordCount: number
-  chapterCount: number
-  /** 分卷概要（按序） */
-  volumes: RefVolume[]
-  /** 绑定的本地目录（reference.json + chapters/ + analysis/） */
-  dir: string
-  /** 导入时探测到的源编码，便于回溯乱码问题 */
-  sourceEncoding: string
-  stage: RefStage
-  createdAt: number
-  updatedAt: number
-}
-
 export interface UIState {
   theme: 'light' | 'dark'
   fontSize: number
@@ -205,8 +166,6 @@ export interface AppState {
   characters: Character[]
   settings: SettingItem[]
   foreshadows: Foreshadow[]
-  /** 参考库（他人作品，仅拆解分析，不参与日更与字数统计） */
-  references: Reference[]
   dailyLog: DailyLog
   ui: UIState
   ai: AIConfig

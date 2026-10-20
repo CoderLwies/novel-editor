@@ -10,41 +10,13 @@ import type {
   ForeshadowStatus,
   ChapterSnapshot,
   AIConfig,
-  Reference,
   ID,
 } from './types'
 import type { ProjectData } from './project'
 import { writeChapterFile, writeBookMeta, writeProjectToDir, stripContent, hydrateContent } from './project'
 import { supportsFileStorage, getUserDataDir } from './fs'
-import { analyzeStructure, runElementExtraction, runPlotExtraction, clearFailedBatches, rebuildFromRaw } from './refanalysis'
-import type { RefStructure, RefElements, RefPlot } from './refschema'
-import type { QueueProgress, AiStage, ScopeSpec, QueueConfig, ChapterScope } from './aiqueue'
-import type { RunResult } from './aiqueue-runner'
-import { aiReady, chatJSONWithUsage, SYS_PLANNER } from './ai'
-import { SYS_CHECKLIST, type ChecklistResult, diffInsightPrompt, type DiffInsight } from './refprompt'
-import {
-  locatePrompt,
-  normalizeLocate,
-  checkRegression,
-  rankCandidates,
-  SYS_LOCATOR,
-  type CandidateBeat,
-  type LocateResult,
-} from './reflocate'
 import { createSeedState } from './seed'
 
-/** 定位时送进 prompt 的候选上限。候选过多时按二元组重合度粗排 */
-const MAX_LOCATE_CANDIDATES = 40
-
-/** 定位结果：命中的候选拍 + 是否倒退提示 */
-export interface LocatedBeat {
-  result: LocateResult
-  /** 命中的候选；未命中时为 null */
-  picked: CandidateBeat | null
-  /** 实际送进 prompt 的候选（粗排后的顺序） */
-  candidates: CandidateBeat[]
-  regression: { regressed: boolean; note?: string }
-}
 import { DEFAULT_AI_BASE_URL, AI_MODEL } from './ai'
 import { countWords, todayKey, uid } from './utils'
 
@@ -105,7 +77,6 @@ export function migrate(raw: AppState): AppState {
     chapters,
     foreshadows,
     snapshots: raw.snapshots ?? [],
-    references: raw.references ?? [],
     ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '', onboarded: raw.ui.onboarded ?? true, recentBookIds: raw.ui.recentBookIds ?? [] },
     // 模型固定为 deepseek-flash；baseUrl 沿用用户已填值，否则回落到官方端点
     ai: {
@@ -773,144 +744,6 @@ export const actions = {
     return book
   },
 
-  /** 新增一部参考作品（原文已由调用方落盘到 ref.dir） */
-  addReference(ref: Reference) {
-    set((s) => ({ ...s, references: [ref, ...s.references] }))
-    return ref
-  },
-
-  /** 推进分析阶段（P1 流水线写回；此处只更轻量元数据，不碰正文） */
-  updateReference(id: ID, patch: Partial<Reference>) {
-    set((s) => ({
-      ...s,
-      references: s.references.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r)),
-    }))
-  },
-
-  /**
-   * 阶段一：结构与节奏统计。纯本地计算，不调 AI，可重复跑。
-   * 返回统计结果，失败时抛出由调用方处理。
-   */
-  async analyzeStructure(id: ID): Promise<RefStructure> {
-    const ref = state.references.find((r) => r.id === id)
-    if (!ref) throw new Error('参考作品不存在')
-    actions.updateReference(id, { stage: 'scanning' })
-    try {
-      const { structure, stage } = await analyzeStructure(ref)
-      actions.updateReference(id, { stage })
-      return structure
-    } catch (e) {
-      actions.updateReference(id, { stage: 'idle' })
-      throw e
-    }
-  },
-
-  /**
-   * 阶段二：要素抽取（需 AI）。内部走队列，支持中断与断点续跑。
-   * retryFailed=true 时只重跑上次失败的批次（对应 UI 的「重跑失败批次」）。
-   */
-  async extractElements(
-    id: ID,
-    opts: { onProgress?: (p: QueueProgress) => void; signal?: AbortSignal; retryFailed?: boolean; scope?: ScopeSpec; explicitScope?: ChapterScope; config?: Partial<QueueConfig> } = {},
-  ): Promise<{ elements: RefElements; run: RunResult }> {
-    const ref = state.references.find((r) => r.id === id)
-    if (!ref) throw new Error('参考作品不存在')
-    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口，请先在顶栏「AI 接口设置」里填好 Base URL 与 Key')
-
-    if (opts.retryFailed) await clearFailedBatches(ref, 'elements')
-
-    const { elements, run } = await runElementExtraction(ref, {
-      ai: state.ai,
-      onProgress: opts.onProgress,
-      signal: opts.signal,
-      // 档位必须透传：漏传会让「每卷前 20 章」静默变成全书，费用差一个量级
-      scope: opts.scope,
-      explicitScope: opts.explicitScope,
-      config: opts.config,
-    })
-    actions.updateReference(id, { stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
-    return { elements, run }
-  },
-
-  /** 阶段三：情节链拆解。需先有结构统计（拿到章序），但不必等要素抽取完成 */
-  async extractPlot(
-    id: ID,
-    opts: { onProgress?: (p: QueueProgress) => void; signal?: AbortSignal; retryFailed?: boolean; scope?: ScopeSpec; explicitScope?: ChapterScope; config?: Partial<QueueConfig> } = {},
-  ): Promise<{ plot: RefPlot; run: RunResult; arcError: string | null }> {
-    const ref = state.references.find((r) => r.id === id)
-    if (!ref) throw new Error('参考作品不存在')
-    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口，请先在顶栏「AI 接口设置」里填好 Base URL 与 Key')
-
-    if (opts.retryFailed) await clearFailedBatches(ref, 'plot')
-
-    const { plot, run, arcError } = await runPlotExtraction(ref, {
-      ai: state.ai,
-      onProgress: opts.onProgress,
-      signal: opts.signal,
-      scope: opts.scope,
-      explicitScope: opts.explicitScope,
-      config: opts.config,
-    })
-    actions.updateReference(id, { stage: run.checkpoint.status === 'done' ? 'done' : 'scanned' })
-    return { plot, run, arcError }
-  },
-
-  /**
-   * 按已写内容定位当前情节链。
-   * 只做一次轻量调用（输入当前章 + 候选拍特征），不重跑分析。
-   */
-  async locateBeat(input: {
-    chapterTitle: string
-    content: string
-    candidates: CandidateBeat[]
-    previous?: { pickedIndex: number; title: string } | null
-  }): Promise<LocatedBeat> {
-    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口，无法定位')
-    const ranked = rankCandidates(input.candidates, input.content, MAX_LOCATE_CANDIDATES)
-    if (!ranked.length) throw new Error('没有可用的候选情节拍，请先对参考书跑一次「情节链拆解」')
-
-    const prompt = locatePrompt(input.chapterTitle, input.content, ranked, input.previous ?? null, 8000)
-    const { data } = await chatJSONWithUsage<LocateResult>(state.ai, SYS_LOCATOR, prompt, 60000)
-    const normalized = normalizeLocate(data, ranked)
-    const picked = normalized.pickedIndex >= 0 ? ranked[normalized.pickedIndex] : null
-    const regression = checkRegression(input.previous ?? null, normalized)
-    return { result: normalized, picked, candidates: ranked, regression }
-  },
-
-  /** 单次轻量调用：归纳要素清单。刻意不走队列 —— 这不是批量任务 */
-  async checklistOnce(prompt: string): Promise<ChecklistResult> {
-    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口')
-    const { data } = await chatJSONWithUsage<ChecklistResult>(state.ai, SYS_CHECKLIST, prompt, 60000)
-    return data
-  },
-
-  /**
-   * 差异解读：输入是**已经算好的确定性统计**，模型只负责组织语言与指出取舍。
-   * 不喂正文，所以它无从虚构事实。
-   */
-  async diffInsight(rows: string): Promise<DiffInsight> {
-    if (!aiReady(state.ai)) throw new Error('尚未配置 AI 接口')
-    const { data } = await chatJSONWithUsage<DiffInsight>(state.ai, SYS_PLANNER, diffInsightPrompt(rows), 60000)
-    return data
-  },
-
-  /**
-   * 从 raw/ 缓存重建产物 —— **不调用模型，零成本**。
-   * 跑一本书 token 花费不小，任何环节失败都不该让已付费的成果不可见。
-   */
-  async rebuildFromCache(id: ID, stage: AiStage): Promise<{ ok: boolean; reason?: string; batches?: number }> {
-    const ref = state.references.find((r) => r.id === id)
-    if (!ref) throw new Error('参考作品不存在')
-    const r = await rebuildFromRaw(ref, stage)
-    if (r.ok) {
-      actions.updateReference(id, { stage: stage === 'plot' ? 'done' : ref.stage === 'idle' ? 'scanned' : ref.stage })
-    }
-    return r
-  },
-
-  removeReference(id: ID) {
-    set((s) => ({ ...s, references: s.references.filter((r) => r.id !== id) }))
-  },
 
   resetDemo() {
     state = createSeedState()

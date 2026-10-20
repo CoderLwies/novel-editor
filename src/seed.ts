@@ -329,6 +329,5 @@ export function createSeedState(): AppState {
     },
     ai: { ...DEFAULT_AI_CONFIG },
     snapshots: [],
-    references: [],
   }
 }
