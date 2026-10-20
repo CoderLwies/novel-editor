@@ -36,18 +36,6 @@ export const fsLow = {
 }
 
 /**
- * 存在性探测的安全版：无桌面能力（浏览器 / 单测）或 IPC 出错时返回 false。
- * 用它替代裸 exists 来守卫读取，避免「文件本来就不存在」被当成异常。
- */
-export async function pathExists(p: string): Promise<boolean> {
-  try {
-    return await fsLow.exists(p)
-  } catch {
-    return false
-  }
-}
-
-/**
  * 读外部文本并探测编码（严格 utf-8 优先，回退 gb18030）。
  * 导入国内网文 txt 必需 —— 大量文件是 GBK 编码，按 utf-8 读会整篇乱码。
  */
