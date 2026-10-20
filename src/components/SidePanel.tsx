@@ -3,6 +3,7 @@ import { Plus, Trash2, User, Map as MapIcon, ScrollText, Swords, Package, Users,
 import { useStore, actions, volumesOf, chaptersOf } from '../store'
 import type { Book, Chapter, Character, CharacterState, SettingItem, SettingCategory, ForeshadowStatus, ForeshadowPriority, OutlineStatus, ID } from '../types'
 import { countWords, formatNumber } from '../utils'
+import { OS_META } from '../constants/outline'
 import { chatJSON, writebackPrompt, snapshotCast, SYS_PLANNER, aiReady, characterCardPrompt, settingCardPrompt, type GenWriteback, type GenCharacterCard, type GenSettingCard } from '../ai'
 import { AiSettingsModal, AiSplitModal, AiBranchModal, AiCheckModal, AiGenSettingsModal } from './AiModals'
 import Modal from './Modal'
@@ -392,12 +393,6 @@ function WritebackBtn({ book, chapter }: { book: Book; chapter: Chapter }) {
       {msg && <span className={`ai-inline-${msg === '已回写' ? 'ok' : 'err'}`}>{msg}</span>}
     </button>
   )
-}
-
-export const OS_META: Record<OutlineStatus, { label: string; cls: string }> = {
-  plan: { label: '计划中', cls: 'os-plan' },
-  written: { label: '已成文', cls: 'os-written' },
-  revised: { label: '已修纲', cls: 'os-revised' },
 }
 
 function OlText({

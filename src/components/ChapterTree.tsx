@@ -3,7 +3,7 @@ import { ChevronRight, ChevronDown, Plus, Trash2, FilePlus2, Layers } from 'luci
 import { useStore, actions, chaptersOf } from '../store'
 import type { Book, Volume, AppState } from '../types'
 import { countWords, formatNumber } from '../utils'
-import { OS_META } from './SidePanel'
+import { OS_META } from '../constants/outline'
 
 export default function ChapterTree({
   book,

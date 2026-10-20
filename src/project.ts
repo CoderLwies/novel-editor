@@ -13,6 +13,7 @@ import type {
 } from './types'
 import { fsLow } from './fs'
 import { encodeFrontmatter, parseFrontmatter } from './frontmatter'
+import { OS_META } from './constants/outline'
 import { countWords } from './utils'
 
 export const PROJECT_FORMAT = 'zizhou-project'
@@ -431,12 +432,6 @@ export function exportBookMd(state: AppState, bookId: ID): string {
   return out.join('\n')
 }
 
-const OUTLINE_STATUS_LABEL: Record<OutlineStatus, string> = {
-  plan: '计划中',
-  written: '已成文',
-  revised: '已修纲',
-}
-
 export function exportOutlineMd(state: AppState, bookId: ID): string {
   const book = state.books.find((b) => b.id === bookId)!
   const volumes = state.volumes.filter((v) => v.bookId === bookId).sort((a, b) => a.order - b.order)
@@ -457,7 +452,7 @@ export function exportOutlineMd(state: AppState, bookId: ID): string {
 
     for (const c of chs) {
       out.push(`### ${c.title}`, '')
-      const tags = [`纲状态：${OUTLINE_STATUS_LABEL[c.outlineStatus]}`, `字数：${countWords(c.content)}`]
+      const tags = [`纲状态：${OS_META[c.outlineStatus].label}`, `字数：${countWords(c.content)}`]
       if (c.pov) tags.push(`视角：${c.pov}`)
       out.push(`<sub>${tags.join(' · ')}</sub>`, '')
       if (c.synopsis) out.push(`- **概括**：${c.synopsis}`)

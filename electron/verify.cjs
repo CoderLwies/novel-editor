@@ -246,11 +246,13 @@ async function main() {
   const meta = bj?.chaptersMeta?.find((m) => m.goal === '纲目标E2E标记')
   console.log('E2E outline fields -> persisted goal:', !!meta, '| outlineStatus:', meta?.outlineStatus)
 
-  // 2c) 全书大纲表视图：渲染 + 纲状态下拉 + 点击回到正文
+  // 2c) 大纲页是独立视图：渲染 + 纲状态下拉 + 独占全宽（无目录树/侧栏）+ 点击回到正文
   await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('大纲'))?.click()`)
   await sleep(600)
   const rows = await js(`document.querySelectorAll('.ov-row').length`)
   const hasDot = await js(`!!document.querySelector('.ov-row .os-dot')`)
+  // 大纲页应独占工作区：目录树与右侧栏都不渲染
+  const isolated = await js(`!document.querySelector('.tree') && !document.querySelector('.side') && !!document.querySelector('.outline-view')`)
   await shot('12-outline-view.png')
   await js(`(() => {
     const sel = document.querySelector('.ov-row .ov-select')
@@ -265,8 +267,8 @@ async function main() {
   await js(`document.querySelector('.ov-row .ov-name')?.click()`)
   await sleep(500)
   const backToEditor = await js(`!!document.querySelector('.editor-textarea')`)
-  console.log('E2E outline table -> rows:', rows, '| status dot:', hasDot, '| revised:', revised,
-    '| coverage:', coverage, '| back to editor:', backToEditor)
+  console.log('E2E outline page -> rows:', rows, '| status dot:', hasDot, '| revised:', revised,
+    '| standalone:', isolated, '| coverage:', coverage, '| back to editor:', backToEditor)
 
   // 2d) 导出全书大纲 Markdown
   await js(`document.querySelector('.filemenu > button')?.click()`)

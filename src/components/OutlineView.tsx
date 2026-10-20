@@ -3,7 +3,7 @@ import { GripVertical } from 'lucide-react'
 import { useStore, actions, volumesOf, chaptersOf } from '../store'
 import type { Book, OutlineStatus, ID } from '../types'
 import { countWords, formatNumber } from '../utils'
-import { OS_META } from './SidePanel'
+import { OS_META } from '../constants/outline'
 
 export default function OutlineView({ book, onOpenChapter }: { book: Book; onOpenChapter: (id: ID) => void }) {
   const state = useStore()

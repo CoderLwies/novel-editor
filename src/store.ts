@@ -10,6 +10,7 @@ import type {
   ForeshadowStatus,
   ChapterSnapshot,
   AIConfig,
+  WorkspaceView,
   ID,
 } from './types'
 import type { ProjectData } from './project'
@@ -77,7 +78,15 @@ export function migrate(raw: AppState): AppState {
     chapters,
     foreshadows,
     snapshots: raw.snapshots ?? [],
-    ui: { ...raw.ui, jump: null, lastGoalToastDate: raw.ui.lastGoalToastDate ?? '', onboarded: raw.ui.onboarded ?? true, recentBookIds: raw.ui.recentBookIds ?? [] },
+    ui: {
+      ...raw.ui,
+      jump: null,
+      lastGoalToastDate: raw.ui.lastGoalToastDate ?? '',
+      view: raw.ui.view ?? 'write',
+      focusMode: false,
+      onboarded: raw.ui.onboarded ?? true,
+      recentBookIds: raw.ui.recentBookIds ?? [],
+    },
     // 模型固定为 deepseek-flash；baseUrl 沿用用户已填值，否则回落到官方端点
     ai: {
       baseUrl: ai?.baseUrl?.trim() ? ai.baseUrl : DEFAULT_AI_BASE_URL,
@@ -308,6 +317,11 @@ export function useStore(): AppState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
+/** 读取当前状态快照。仅供测试与调试使用，UI 请用 useStore()。 */
+export function getState(): AppState {
+  return state
+}
+
 /**
  * 启动引导：为未绑定目录的作品分配应用数据目录并把正文落盘，
  * 再把已落盘的正文回填回内存。浏览器端无此能力，直接跳过（正文留在 localStorage）。
@@ -380,7 +394,7 @@ export const actions = {
       ...s,
       books: [book, ...s.books],
       volumes: [...s.volumes, vol],
-      ui: { ...s.ui, lastBookId: book.id, lastChapterId: null },
+      ui: { ...s.ui, lastBookId: book.id, lastChapterId: null, view: 'write' },
     }))
     return book
   },
@@ -663,6 +677,8 @@ export const actions = {
         ...s.ui,
         lastBookId: bookId,
         lastChapterId: chapterId,
+        // 从书架进书一律落在写作台：进书的动作本身就是"要开始写/看这本"
+        view: 'write',
         recentBookIds: [bookId, ...(s.ui.recentBookIds ?? []).filter((x) => x !== bookId)].slice(0, 8),
       },
     }))
@@ -670,8 +686,15 @@ export const actions = {
   selectChapter(chapterId: ID) {
     set((s) => ({ ...s, ui: { ...s.ui, lastChapterId: chapterId } }))
   },
+  /** 切换工作台视图（写作台 / 大纲页）。落进 ui，本次开书期间保持。 */
+  setView(view: WorkspaceView) {
+    set((s) => ({ ...s, ui: { ...s.ui, view } }))
+  },
+  setFocusMode(v: boolean) {
+    set((s) => ({ ...s, ui: { ...s.ui, focusMode: v } }))
+  },
   closeBook() {
-    set((s) => ({ ...s, ui: { ...s.ui, lastBookId: null, lastChapterId: null } }))
+    set((s) => ({ ...s, ui: { ...s.ui, lastBookId: null, lastChapterId: null, view: 'write' } }))
   },
 
   /** 合并导入的项目数据（重排 id 防冲突），返回新建的作品 */
@@ -739,7 +762,7 @@ export const actions = {
       settings: [...s.settings, ...settings],
       foreshadows: [...s.foreshadows, ...foreshadows],
       snapshots: [...s.snapshots.filter((x) => !importedSnaps.some((y) => y.id === x.id)), ...importedSnaps],
-      ui: { ...s.ui, lastBookId: bookId, lastChapterId: chapters[0]?.id ?? null },
+      ui: { ...s.ui, lastBookId: bookId, lastChapterId: chapters[0]?.id ?? null, view: 'write' },
     }))
     return book
   },
