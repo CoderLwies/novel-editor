@@ -152,18 +152,29 @@ function contentOnDisk(bookId: ID): boolean {
 
 /**
  * 写入 localStorage。
- * 已落盘的作品剥离正文（容量问题的关键）；但**始终保留当前编辑章的正文**，
- * 因为 beforeunload 时异步文件写可能来不及，留它兜底防丢字。
+ *
+ * 已落盘的作品：正文在 chapters/*.md 里，localStorage 只需留当前编辑章兜底
+ * （beforeunload 时异步文件写可能来不及）—— 这是容量问题的关键。
+ * 未落盘的作品（浏览器版没有落盘能力）：localStorage 是正文的**唯一副本**，
+ * 剥掉就再也回不来，必须原样保留。
  */
 function writeNow() {
+  const keep = state.ui.lastChapterId
+  const build = (dropUnbound: boolean) =>
+    stripContent(state, (c) => {
+      const bound = state.books.find((b) => b.id === c.bookId)?.projectPath
+      if (!bound) return dropUnbound ? '' : c.content
+      return keep && c.id === keep ? c.content : ''
+    })
   try {
-    const keep = state.ui.lastChapterId
-    const meta = stripContent(state, (c) =>
-      keep && c.id === keep && !!state.books.find((b) => b.id === c.bookId)?.projectPath ? c.content : '',
-    )
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(meta))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(build(false)))
   } catch {
-    /* storage full or unavailable */
+    // 容量不够：连未落盘作品的正文也剥掉再试一次，至少保住元数据
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(build(true)))
+    } catch {
+      /* storage full or unavailable */
+    }
   }
 }
 
@@ -686,9 +697,25 @@ export const actions = {
   selectChapter(chapterId: ID) {
     set((s) => ({ ...s, ui: { ...s.ui, lastChapterId: chapterId } }))
   },
+  /**
+   * 跳到写作台上的某章。
+   * 正文只存在于写作台，从大纲页/搜索结果跳转时必须一并切回写作视图，
+   * 否则只选中章节却看不到正文，jump 目标也没有 Editor 消费。
+   */
+  openChapter(chapterId: ID) {
+    set((s) => ({ ...s, ui: { ...s.ui, lastChapterId: chapterId, view: 'write' } }))
+  },
   /** 切换工作台视图（写作台 / 大纲页）。落进 ui，本次开书期间保持。 */
   setView(view: WorkspaceView) {
-    set((s) => ({ ...s, ui: { ...s.ui, view } }))
+    set((s) => ({
+      ...s,
+      ui: {
+        ...s.ui,
+        view,
+        // 专注模式是「写作时沉浸」，进大纲页就退出——否则大纲页没有退出入口
+        focusMode: view === 'outline' ? false : s.ui.focusMode,
+      },
+    }))
   },
   setFocusMode(v: boolean) {
     set((s) => ({ ...s, ui: { ...s.ui, focusMode: v } }))

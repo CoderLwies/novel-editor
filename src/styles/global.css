@@ -1359,6 +1359,16 @@ label.lbl {
   text-align: center;
 }
 
+/* 正文回填完成前的载入态：此时字数统计全为 0，不能当数据展示 */
+.outline-loading {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  background: var(--outline-bg);
+}
+
 /* ---------------- AI 生成 / 巡检 ---------------- */
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -246,13 +246,13 @@ async function main() {
   const meta = bj?.chaptersMeta?.find((m) => m.goal === '纲目标E2E标记')
   console.log('E2E outline fields -> persisted goal:', !!meta, '| outlineStatus:', meta?.outlineStatus)
 
-  // 2c) 大纲页是独立视图：渲染 + 纲状态下拉 + 独占全宽（无目录树/侧栏）+ 点击回到正文
+  // 2c) 大纲页是独立视图：有自己的内容区（无编辑器），且目录树/侧栏照常在
   await js(`[...document.querySelectorAll('.seg-btn')].find(b=>b.textContent.includes('大纲'))?.click()`)
   await sleep(600)
   const rows = await js(`document.querySelectorAll('.ov-row').length`)
   const hasDot = await js(`!!document.querySelector('.ov-row .os-dot')`)
-  // 大纲页应独占工作区：目录树与右侧栏都不渲染
-  const isolated = await js(`!document.querySelector('.tree') && !document.querySelector('.side') && !!document.querySelector('.outline-view')`)
+  // 大纲页有自己的内容区；目录树与侧栏仍在（建卷/删章/改章纲不能因换页而消失）
+  const standalone = await js(`!!document.querySelector('.outline-view') && !document.querySelector('.editor-pane') && !!document.querySelector('.tree') && !!document.querySelector('.side')`)
   await shot('12-outline-view.png')
   await js(`(() => {
     const sel = document.querySelector('.ov-row .ov-select')
@@ -268,7 +268,7 @@ async function main() {
   await sleep(500)
   const backToEditor = await js(`!!document.querySelector('.editor-textarea')`)
   console.log('E2E outline page -> rows:', rows, '| status dot:', hasDot, '| revised:', revised,
-    '| standalone:', isolated, '| coverage:', coverage, '| back to editor:', backToEditor)
+    '| standalone:', standalone, '| coverage:', coverage, '| back to editor:', backToEditor)
 
   // 2d) 导出全书大纲 Markdown
   await js(`document.querySelector('.filemenu > button')?.click()`)

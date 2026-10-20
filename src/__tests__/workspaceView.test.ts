@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { actions, getState, migrate } from '../store'
+import { resolveWorkspaceView } from '../route'
 import { OS_META } from '../constants/outline'
 import type { AppState } from '../types'
 
@@ -51,6 +52,32 @@ describe('工作台视图路由', () => {
 
     actions.setView('write')
     expect(getState().ui.lastChapterId).toBe(ch.id)
+  })
+
+  it('openChapter 一并切回写作台', () => {
+    const book = actions.createBook({ title: '测试书' })
+    const vol = getState().volumes.find((v) => v.bookId === book.id)!
+    const ch = actions.createChapter(book.id, vol.id, '第一章')
+
+    actions.setView('outline')
+    actions.openChapter(ch.id)
+    expect(getState().ui.view).toBe('write')
+    expect(getState().ui.lastChapterId).toBe(ch.id)
+  })
+
+  it('切到大纲页自动退出专注模式（大纲页没有退出入口）', () => {
+    actions.setFocusMode(true)
+    actions.setView('outline')
+    expect(getState().ui.focusMode).toBe(false)
+  })
+
+  it('路由决策：view=outline 走大纲页，其余走写作台', () => {
+    const book = actions.createBook({ title: '测试书' })
+    actions.openBook(book.id)
+    expect(resolveWorkspaceView(getState())).toBe('write')
+
+    actions.setView('outline')
+    expect(resolveWorkspaceView(getState())).toBe('outline')
   })
 
   it('关书回到书架并重置视图', () => {

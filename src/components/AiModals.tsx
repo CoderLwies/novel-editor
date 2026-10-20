@@ -364,7 +364,7 @@ export function AiCheckModal({ book, onClose }: { book: Book; onClose: () => voi
           key={i}
           className="ai-issue"
           onClick={() => {
-            if (it.chapterId) actions.selectChapter(it.chapterId)
+            if (it.chapterId) actions.openChapter(it.chapterId)
             onClose()
           }}
           title={it.chapterId ? '点击跳到该章' : ''}

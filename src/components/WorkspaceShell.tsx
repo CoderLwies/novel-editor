@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import {
   ChevronLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
   Sun, Moon, Minus, Plus, HardDrive, PenLine, Table2, Sparkles, Search, Focus, Command, HelpCircle, X,
@@ -88,7 +88,7 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const volumes = volumesOf(state, book.id)
+  const volumes = useMemo(() => volumesOf(state, book.id), [state, book.id])
   const currentChapter = useCurrentChapter(book)
 
   // 绑定目录后，内容变更防抖自动落盘，并给出同步状态指示。
@@ -125,15 +125,13 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
         <button className="icon-btn square" title="返回书架" onClick={() => actions.closeBook()}>
           <ChevronLeft size={19} />
         </button>
-        {!isOutline && (
-          <button
-            className="icon-btn square"
-            title={showTree ? '隐藏目录' : '显示目录'}
-            onClick={() => setShowTree((v) => !v)}
-          >
-            {showTree ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
-          </button>
-        )}
+        <button
+          className="icon-btn square"
+          title={showTree ? '隐藏目录' : '显示目录'}
+          onClick={() => setShowTree((v) => !v)}
+        >
+          {showTree ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+        </button>
 
         <span className="topbar-book">{book.title}</span>
         {book.projectPath ? (
@@ -148,7 +146,7 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
             <HardDrive size={13} /> 本地保存
           </span>
         )}
-        {currentChapter && !isOutline && <span className="topbar-chapter">{currentChapter.title}</span>}
+        {currentChapter && <span className="topbar-chapter">{currentChapter.title}</span>}
 
         <div className="spacer" />
 
@@ -178,15 +176,13 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
         <button className="icon-btn square" title="帮助与快捷键" onClick={() => setShowHelp(true)}>
           <HelpCircle size={17} />
         </button>
-        {!isOutline && (
-          <button
-            className={`icon-btn square ${focusMode ? 'active' : ''}`}
-            title={focusMode ? '退出专注模式' : '专注模式（隐藏目录与侧栏）'}
-            onClick={() => actions.setFocusMode(!focusMode)}
-          >
-            <Focus size={17} />
-          </button>
-        )}
+        <button
+          className={`icon-btn square ${focusMode ? 'active' : ''}`}
+          title={focusMode ? '退出专注模式' : '专注模式（隐藏目录与侧栏，大纲页下即全宽表格）'}
+          onClick={() => actions.setFocusMode(!focusMode)}
+        >
+          <Focus size={17} />
+        </button>
         <FileMenu book={book} />
 
         {!isOutline && (
@@ -213,23 +209,21 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
 
-        {!isOutline && (
-          <button
-            className="icon-btn square"
-            title={showSide ? '隐藏侧栏' : '显示侧栏'}
-            onClick={() => setShowSide((v) => !v)}
-          >
-            {showSide ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
-          </button>
-        )}
+        <button
+          className="icon-btn square"
+          title={showSide ? '隐藏侧栏' : '显示侧栏'}
+          onClick={() => setShowSide((v) => !v)}
+        >
+          {showSide ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+        </button>
       </div>
 
       <div className="ws-body">
-        {showTree && !focusMode && !isOutline && (
+        {showTree && !focusMode && (
           <ChapterTree book={book} volumes={volumes} currentChapterId={currentChapter?.id ?? null} />
         )}
         {children}
-        {showSide && !focusMode && !isOutline && (
+        {showSide && !focusMode && (
           <SidePanel
             book={book}
             chapter={currentChapter}
@@ -249,6 +243,7 @@ export default function WorkspaceShell({ book, children }: { book: Book; childre
           book={book}
           onClose={() => setShowPalette(false)}
           onPickSide={(tab, name) => {
+            // 大纲页也渲染侧栏，直接切 tab 即可，不必回写作台
             setSideTab(tab)
             setSideFilter(name)
             setShowSide(true)

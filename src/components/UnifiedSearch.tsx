@@ -60,7 +60,7 @@ export default function UnifiedSearch({
             className="ai-item-body"
             style={{ textAlign: 'left' }}
             onClick={() => {
-              actions.selectChapter(c.id)
+              actions.openChapter(c.id)
               onClose()
             }}
           >
@@ -77,7 +77,7 @@ export default function UnifiedSearch({
             style={{ textAlign: 'left' }}
             title="跳转到该处"
             onClick={() => {
-              actions.selectChapter(c.id)
+              actions.openChapter(c.id)
               actions.requestJump(c.id, i, kw.length)
               onClose()
             }}

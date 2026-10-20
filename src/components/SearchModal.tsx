@@ -90,7 +90,7 @@ export default function SearchModal({ book, onClose }: { book: Book; onClose: ()
             style={{ textAlign: 'left' }}
             title="点击跳转到该处"
             onClick={() => {
-              actions.selectChapter(h.ch.id)
+              actions.openChapter(h.ch.id)
               actions.requestJump(h.ch.id, h.index, find.length)
               onClose()
             }}
